@@ -1,7 +1,9 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
+  UnauthorizedException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { MailService } from 'src/mail/mail.service';
@@ -9,12 +11,15 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { v4 as uuidv4 } from 'uuid';
 import { CreateUserDto } from './dto/create-user.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
+import { JwtService } from '@nestjs/jwt';
+import { LoginDto } from './dto/login.dto';
 
 @Injectable()
 export class AuthService {
   constructor(
     private prisma: PrismaService,
     private readonly mailService: MailService,
+    private readonly jwtService: JwtService,
   ) {}
 
   async signup(dto: CreateUserDto): Promise<{ message: string }> {
@@ -88,5 +93,42 @@ export class AuthService {
     });
 
     return { message: 'Email verified successfully' };
+  }
+
+  async login(dto: LoginDto) {
+    const user = await this.prisma.user.findUnique({
+      where: { email: dto.email },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    if (!user.emailVerified) {
+      throw new ForbiddenException('Email not verified');
+    }
+
+    const passwordValid = await bcrypt.compare(dto.password, user.passwordHash);
+    if (!passwordValid) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    const payload = { sub: user.id, email: user.email };
+    const accessToken = await this.jwtService.signAsync(payload, {
+      expiresIn: '1d',
+    });
+    const refreshToken = await this.jwtService.signAsync(payload, {
+      expiresIn: '10d',
+    });
+
+    await this.prisma.refreshToken.create({
+      data: {
+        userId: user.id,
+        hashedToken: await bcrypt.hash(refreshToken, 10),
+        expiresAt: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000), // 10 days
+      },
+    });
+
+    return { accessToken, refreshToken };
   }
 }

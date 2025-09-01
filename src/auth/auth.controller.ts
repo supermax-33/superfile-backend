@@ -1,6 +1,7 @@
 import { Controller, Post, Body, Query, Version } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { CreateUserDto } from './dto/create-user.dto';
+import { LoginDto } from './dto/login.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -17,5 +18,11 @@ export class AuthController {
   @Post('verify-email')
   async verifyEmail(@Query('token') token: string) {
     return this.authService.verifyEmail({ token });
+  }
+
+  @Version('1')
+  @Post('login')
+  async login(@Body() loginDto: LoginDto) {
+    return this.authService.login(loginDto);
   }
 }
