@@ -1,9 +1,14 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+} from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { MailService } from 'src/mail/mail.service';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { v4 as uuidv4 } from 'uuid';
 import { CreateUserDto } from './dto/create-user.dto';
+import { VerifyEmailDto } from './dto/verify-email.dto';
 
 @Injectable()
 export class AuthService {
@@ -40,5 +45,48 @@ export class AuthService {
     });
     await this.mailService.sendVerificationEmail(dto.email, token);
     return { message: 'Signup successful, verification email sent.' };
+  }
+
+  async verifyEmail(dto: VerifyEmailDto): Promise<{ message: string }> {
+    if (!dto || !dto.token) {
+      throw new BadRequestException('Token is required');
+    }
+
+    // Find all tokens for this user that are not used
+    const tokens = await this.prisma.verificationToken.findMany({
+      where: { usedAt: null },
+      include: { user: true },
+    });
+
+    // Find the token that matches using bcrypt.compare
+    let verificationToken = null;
+    for (const tokenObj of tokens) {
+      if (await bcrypt.compare(dto.token, tokenObj.hashedToken)) {
+        verificationToken = tokenObj;
+        break;
+      }
+    }
+
+    if (!verificationToken) {
+      throw new BadRequestException('Invalid or already used token');
+    }
+
+    if (verificationToken.expiresAt < new Date()) {
+      throw new BadRequestException('Token expired');
+    }
+
+    // Mark user's email as verified
+    await this.prisma.user.update({
+      where: { id: verificationToken.userId },
+      data: { emailVerified: true },
+    });
+
+    // Mark token as used
+    await this.prisma.verificationToken.update({
+      where: { id: verificationToken.id },
+      data: { usedAt: new Date() },
+    });
+
+    return { message: 'Email verified successfully' };
   }
 }
