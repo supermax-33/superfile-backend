@@ -13,6 +13,7 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import { JwtService } from '@nestjs/jwt';
 import { LoginDto } from './dto/login.dto';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
 
 @Injectable()
 export class AuthService {
@@ -30,7 +31,6 @@ export class AuthService {
 
     const passwordHash = await bcrypt.hash(dto.password, 10);
     const token = uuidv4();
-    const hashedToken = await bcrypt.hash(token, 10);
     const expiresAt = new Date(Date.now() + 1000 * 60 * 60); // 1 hour expiry
 
     const user = await this.prisma.user.create({
@@ -44,7 +44,7 @@ export class AuthService {
     await this.prisma.verificationToken.create({
       data: {
         userId: user.id,
-        hashedToken,
+        verificationToken: token,
         expiresAt,
       },
     });
@@ -66,7 +66,7 @@ export class AuthService {
     // Find the token that matches using bcrypt.compare
     let verificationToken = null;
     for (const tokenObj of tokens) {
-      if (await bcrypt.compare(dto.token, tokenObj.hashedToken)) {
+      if (dto.token === tokenObj.verificationToken) {
         verificationToken = tokenObj;
         break;
       }
@@ -124,11 +124,108 @@ export class AuthService {
     await this.prisma.refreshToken.create({
       data: {
         userId: user.id,
-        hashedToken: await bcrypt.hash(refreshToken, 10),
+        refreshToken,
         expiresAt: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000), // 10 days
       },
     });
 
     return { accessToken, refreshToken };
+  }
+
+  async refreshToken(dto: RefreshTokenDto) {
+    if (!dto.refreshToken) {
+      throw new BadRequestException('Refresh token is required');
+    }
+
+    // decode the refresh token and extract the user info
+    const decoded = (await this.jwtService.verifyAsync(dto.refreshToken)) as {
+      sub: string;
+      email: string;
+    };
+
+    if (!decoded) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    // check the validity of the token
+    let refreshToken = null;
+
+    // find all refresh tokens for this user
+    const allRefreshTokens = await this.prisma.refreshToken.findMany({
+      where: { userId: decoded.sub },
+    });
+
+    // loop to find valid token
+    for (const token of allRefreshTokens) {
+      const isValid = dto.refreshToken === token.refreshToken;
+      if (isValid) {
+        refreshToken = token;
+        break;
+      }
+    }
+
+    if (!refreshToken) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    // check if revoked
+    if (refreshToken.revokedAt !== null) {
+      throw new UnauthorizedException(
+        'Refresh token re-used. Security breach detected.',
+      );
+    }
+
+    // check if expired
+    if (refreshToken.expiresAt < new Date()) {
+      // revoke expired token
+      await this.prisma.refreshToken.update({
+        where: { id: refreshToken.id },
+        data: { revokedAt: new Date() },
+      });
+      throw new UnauthorizedException('Refresh token expired');
+    }
+
+    await this.prisma.refreshToken.update({
+      where: { id: refreshToken.id },
+      data: { revokedAt: new Date() },
+    });
+
+    // If we reach here, the refresh token is valid
+    const payload = {
+      sub: decoded.sub,
+      email: decoded.email,
+    };
+
+    const accessToken = await this.jwtService.signAsync(payload, {
+      expiresIn: '1d',
+    });
+
+    // Generate new refresh token with 10 days expiry (token rotation)
+    const newRefreshToken = await this.jwtService.signAsync(payload, {
+      expiresIn: '10d',
+    });
+
+    // Create a new refresh token in the database
+    const newRefreshTokenRecord = await this.prisma.refreshToken.create({
+      data: {
+        userId: decoded.sub,
+        refreshToken: newRefreshToken,
+        expiresAt: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000), // 10 days
+      },
+    });
+
+    // Mark the old token as revoked and replaced
+    await this.prisma.refreshToken.update({
+      where: { id: refreshToken.id },
+      data: {
+        revokedAt: new Date(),
+        replacedById: newRefreshTokenRecord.id,
+      },
+    });
+
+    return {
+      accessToken,
+      refreshToken: newRefreshToken,
+    };
   }
 }
