@@ -31,7 +31,6 @@ export class AuthService {
 
     const passwordHash = await bcrypt.hash(dto.password, 10);
     const token = uuidv4();
-    const hashedToken = await bcrypt.hash(token, 10);
     const expiresAt = new Date(Date.now() + 1000 * 60 * 60); // 1 hour expiry
 
     const user = await this.prisma.user.create({
@@ -45,7 +44,7 @@ export class AuthService {
     await this.prisma.verificationToken.create({
       data: {
         userId: user.id,
-        hashedToken,
+        verificationToken: token,
         expiresAt,
       },
     });
@@ -67,7 +66,7 @@ export class AuthService {
     // Find the token that matches using bcrypt.compare
     let verificationToken = null;
     for (const tokenObj of tokens) {
-      if (await bcrypt.compare(dto.token, tokenObj.hashedToken)) {
+      if (dto.token === tokenObj.verificationToken) {
         verificationToken = tokenObj;
         break;
       }
@@ -125,7 +124,7 @@ export class AuthService {
     await this.prisma.refreshToken.create({
       data: {
         userId: user.id,
-        hashedToken: refreshToken,
+        refreshToken,
         expiresAt: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000), // 10 days
       },
     });
@@ -158,7 +157,7 @@ export class AuthService {
 
     // loop to find valid token
     for (const token of allRefreshTokens) {
-      const isValid = dto.refreshToken === token.hashedToken;
+      const isValid = dto.refreshToken === token.refreshToken;
       if (isValid) {
         refreshToken = token;
         break;
@@ -210,7 +209,7 @@ export class AuthService {
     const newRefreshTokenRecord = await this.prisma.refreshToken.create({
       data: {
         userId: decoded.sub,
-        hashedToken: newRefreshToken,
+        refreshToken: newRefreshToken,
         expiresAt: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000), // 10 days
       },
     });

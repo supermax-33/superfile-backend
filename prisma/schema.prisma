@@ -14,12 +14,12 @@ datasource db {
 }
 
 model User {
-  id                 String   @id @default(uuid())
-  email              String   @unique
-  passwordHash       String
-  emailVerified      Boolean  @default(false)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  id            String   @id @default(uuid())
+  email         String   @unique
+  passwordHash  String
+  emailVerified Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   verificationTokens VerificationToken[]
   refreshTokens      RefreshToken[]
@@ -27,35 +27,35 @@ model User {
 }
 
 model VerificationToken {
-  id          String   @id @default(uuid())
-  userId      String
-  hashedToken String
-  expiresAt   DateTime
-  usedAt      DateTime?
-  createdAt   DateTime @default(now())
+  id                String    @id @default(uuid())
+  userId            String
+  verificationToken String
+  expiresAt         DateTime
+  usedAt            DateTime?
+  createdAt         DateTime  @default(now())
 
-  user        User     @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id])
 }
 
 model RefreshToken {
-  id           String   @id @default(uuid())
+  id           String    @id @default(uuid())
   userId       String
-  hashedToken  String
+  refreshToken String
   expiresAt    DateTime
   revokedAt    DateTime?
-  replacedById String?  // this points to the new refresh token
-  createdAt    DateTime @default(now())
+  replacedById String? // this points to the new refresh token
+  createdAt    DateTime  @default(now())
 
-  user         User     @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id])
 }
 
 model PasswordResetToken {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   userId      String
   hashedToken String
   expiresAt   DateTime
   usedAt      DateTime?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
 
-  user        User     @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id])
 }
