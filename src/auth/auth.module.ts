@@ -7,6 +7,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { ConfigModule } from '@nestjs/config';
+import { JwtExceptionFilter } from './filters/jwt-exception.filter';
 
 @Module({
   imports: [
@@ -20,6 +21,6 @@ import { ConfigModule } from '@nestjs/config';
     MailModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy],
+  providers: [AuthService, JwtStrategy, JwtExceptionFilter],
 })
 export class AuthModule {}
