@@ -1,8 +1,20 @@
-import { Controller, Post, Body, Query, Version } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  Query,
+  Version,
+  UseGuards,
+  Request,
+  UseFilters,
+} from '@nestjs/common';
 import { AuthService } from './auth.service';
+import { JwtExceptionFilter } from './filters/jwt-exception.filter';
 import { CreateUserDto } from './dto/create-user.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 @Controller('auth')
 export class AuthController {
@@ -31,5 +43,18 @@ export class AuthController {
   @Post('refresh-token')
   async refreshToken(@Body() dto: RefreshTokenDto) {
     return this.authService.refreshToken(dto);
+  }
+
+  @Version('1')
+  @UseGuards(JwtAuthGuard)
+  @Post('change-password')
+  @UseFilters(JwtExceptionFilter)
+  async changePassword(
+    @Request() req,
+    @Body() changePasswordDto: ChangePasswordDto,
+  ) {
+    // The JWT guard will verify the token is valid and not expired
+    // If the token is expired, JwtExceptionFilter will handle the error
+    return this.authService.changePassword(req.user.userId, changePasswordDto);
   }
 }
