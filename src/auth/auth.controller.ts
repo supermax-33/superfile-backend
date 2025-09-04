@@ -7,6 +7,7 @@ import {
   UseGuards,
   Request,
   UseFilters,
+  Get,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { JwtExceptionFilter } from './filters/jwt-exception.filter';
@@ -30,7 +31,7 @@ export class AuthController {
   }
 
   @Version('1')
-  @Post('verify-email')
+  @Get('verify-email')
   async verifyEmail(@Query('token') token: string) {
     return this.authService.verifyEmail({ token });
   }
