@@ -351,6 +351,12 @@ export class AuthService {
       expiresIn: '15m',
     });
 
+    // update the token as used
+    await this.prisma.passwordResetToken.update({
+      where: { id: resetToken.id },
+      data: { usedAt: new Date() },
+    });
+
     return {
       valid: true,
       message: 'User authenticated. Please reset your password.',
