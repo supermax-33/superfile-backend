@@ -328,41 +328,53 @@ export class AuthService {
     };
   }
 
-  async resetPassword(
+  async verifyResetToken(
     token: string,
-    dto: ResetPasswordDto,
-  ): Promise<{ message: string }> {
+  ): Promise<{ valid: boolean; message: string; accessToken?: string }> {
+    // Find all valid (not used, not expired) tokens
+    const resetToken = await this.prisma.passwordResetToken.findFirst({
+      where: {
+        resetToken: token,
+        usedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      include: { user: true },
+    });
+
+    if (!resetToken) {
+      return { valid: false, message: 'Invalid or expired token' };
+    }
+
+    // create new access token valid for 15 minutes
+    const payload = { sub: resetToken.userId, email: resetToken.user.email };
+    const accessToken = await this.jwtService.signAsync(payload, {
+      expiresIn: '15m',
+    });
+
+    return {
+      valid: true,
+      message: 'User authenticated. Please reset your password.',
+      accessToken,
+    };
+  }
+
+  async resetPassword(dto: ResetPasswordDto): Promise<{ message: string }> {
     try {
-      // Find all valid (not used, not expired) tokens
-      const resetTokens = await this.prisma.passwordResetToken.findMany({
-        where: {
-          usedAt: null,
-          expiresAt: { gt: new Date() },
-        },
-        include: { user: true },
-      });
-
-      if (resetTokens.length === 0) {
-        throw new BadRequestException('Invalid or expired token');
+      if (!dto || !dto.token) {
+        throw new BadRequestException('Access Token is required');
       }
 
-      // Find the matching token
-      let validToken = null;
-      let userId = null;
+      // decode the access token and extract user info
+      const user = (await this.jwtService.verifyAsync(dto.token)) as {
+        sub: string;
+        email: string;
+      };
 
-      // Compare with each token using bcrypt.compare
-      for (const tokenRecord of resetTokens) {
-        const isMatch = await bcrypt.compare(token, tokenRecord.resetToken);
-        if (isMatch) {
-          validToken = tokenRecord;
-          userId = tokenRecord.userId;
-          break;
-        }
+      if (!user) {
+        throw new UnauthorizedException('Invalid access token');
       }
 
-      if (!validToken) {
-        throw new BadRequestException('Invalid or expired token');
-      }
+      const userId = user.sub;
 
       // Hash the new password
       const newPasswordHash = await bcrypt.hash(dto.newPassword, 10);
@@ -371,12 +383,6 @@ export class AuthService {
       await this.prisma.user.update({
         where: { id: userId },
         data: { passwordHash: newPasswordHash },
-      });
-
-      // Mark token as used
-      await this.prisma.passwordResetToken.update({
-        where: { id: validToken.id },
-        data: { usedAt: new Date() },
       });
 
       // Invalidate all refresh tokens for this user (force re-login)

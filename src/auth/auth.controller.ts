@@ -56,8 +56,6 @@ export class AuthController {
     @Request() req,
     @Body() changePasswordDto: ChangePasswordDto,
   ) {
-    // The JWT guard will verify the token is valid and not expired
-    // If the token is expired, JwtExceptionFilter will handle the error
     return this.authService.changePassword(req.user.userId, changePasswordDto);
   }
 
@@ -68,11 +66,14 @@ export class AuthController {
   }
 
   @Version('1')
+  @Get('verify-reset-token')
+  async verifyResetToken(@Query('token') token: string) {
+    return this.authService.verifyResetToken(token);
+  }
+
+  @Version('1')
   @Post('reset-password')
-  async resetPassword(
-    @Query('token') token: string,
-    @Body() resetPasswordDto: ResetPasswordDto,
-  ) {
-    return this.authService.resetPassword(token, resetPasswordDto);
+  async resetPassword(@Body() resetPasswordDto: ResetPasswordDto) {
+    return this.authService.resetPassword(resetPasswordDto);
   }
 }
