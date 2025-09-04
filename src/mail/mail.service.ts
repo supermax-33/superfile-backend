@@ -14,7 +14,7 @@ export class MailService {
 
   async sendPasswordResetEmail(email: string, token: string) {
     const subject = 'Password Reset Request';
-    const html = `<p>You requested a password reset. Click <a href="http://localhost:3000/reset-password?token=${token}">here</a> to reset your password.</p>
+    const html = `<p>You requested a password reset. Click <a href="http://localhost:3000/api/v1/auth/reset-password?token=${token}">here</a> to reset your password.</p>
     <p>This link will expire in 1 hour.</p>
     <p>If you did not request a password reset, please ignore this email.</p>`;
     await this.resendService.sendEmail(email, subject, html);

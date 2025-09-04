@@ -308,14 +308,13 @@ export class AuthService {
 
     // Generate reset token
     const token = uuidv4();
-    const hashedToken = await bcrypt.hash(token, 10);
     const expiresAt = new Date(Date.now() + 1000 * 60 * 60); // 1 hour expiry
 
     // Store the token in the database
     await this.prisma.passwordResetToken.create({
       data: {
         userId: user.id,
-        hashedToken,
+        resetToken: token,
         expiresAt,
       },
     });
@@ -329,7 +328,10 @@ export class AuthService {
     };
   }
 
-  async resetPassword(dto: ResetPasswordDto): Promise<{ message: string }> {
+  async resetPassword(
+    token: string,
+    dto: ResetPasswordDto,
+  ): Promise<{ message: string }> {
     try {
       // Find all valid (not used, not expired) tokens
       const resetTokens = await this.prisma.passwordResetToken.findMany({
@@ -350,10 +352,7 @@ export class AuthService {
 
       // Compare with each token using bcrypt.compare
       for (const tokenRecord of resetTokens) {
-        const isMatch = await bcrypt.compare(
-          dto.token,
-          tokenRecord.hashedToken,
-        );
+        const isMatch = await bcrypt.compare(token, tokenRecord.resetToken);
         if (isMatch) {
           validToken = tokenRecord;
           userId = tokenRecord.userId;
