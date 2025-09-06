@@ -1,6 +1,7 @@
-import { IsString } from 'class-validator';
+import { Length, IsNumberString } from 'class-validator';
 
 export class VerifyEmailDto {
-  @IsString()
-  token: string;
+  @IsNumberString()
+  @Length(6, 6)
+  code: string;
 }

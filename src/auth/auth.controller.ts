@@ -2,14 +2,13 @@ import {
   Controller,
   Post,
   Body,
-  Query,
   Version,
   UseGuards,
   Request,
   UseFilters,
-  Get,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
+import { VerifyEmailDto } from './dto/verify-email.dto'; // Added missing import for VerifyEmailDto
 import { JwtExceptionFilter } from './filters/jwt-exception.filter';
 import { CreateUserDto } from './dto/create-user.dto';
 import { LoginDto } from './dto/login.dto';
@@ -31,9 +30,9 @@ export class AuthController {
   }
 
   @Version('1')
-  @Get('verify-email')
-  async verifyEmail(@Query('token') token: string) {
-    return this.authService.verifyEmail({ token });
+  @Post('verify-email')
+  async verifyEmail(@Body() verifyEmailDto: VerifyEmailDto) {
+    return this.authService.verifyEmail(verifyEmailDto);
   }
 
   @Version('1')
@@ -66,9 +65,9 @@ export class AuthController {
   }
 
   @Version('1')
-  @Get('verify-reset-token')
-  async verifyResetToken(@Query('token') token: string) {
-    return this.authService.verifyResetToken(token);
+  @Post('verify-reset-code')
+  async verifyResetCode(@Body('code') code: string) {
+    return this.authService.verifyResetCode(code);
   }
 
   @Version('1')

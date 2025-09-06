@@ -8,7 +8,6 @@ import {
 import * as bcrypt from 'bcrypt';
 import { MailService } from 'src/mail/mail.service';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { v4 as uuidv4 } from 'uuid';
 import { CreateUserDto } from './dto/create-user.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import { JwtService } from '@nestjs/jwt';
@@ -33,8 +32,9 @@ export class AuthService {
     if (existingUser) throw new ConflictException('Email already exists');
 
     const passwordHash = await bcrypt.hash(dto.password, 10);
-    const token = uuidv4();
-    const expiresAt = new Date(Date.now() + 1000 * 60 * 60); // 1 hour expiry
+    // Generate a 6-digit numeric code
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 1000 * 60 * 10); // 10 min expiry
 
     const user = await this.prisma.user.create({
       data: {
@@ -47,40 +47,30 @@ export class AuthService {
     await this.prisma.verificationToken.create({
       data: {
         userId: user.id,
-        verificationToken: token,
+        verificationToken: code,
         expiresAt,
       },
     });
-    await this.mailService.sendVerificationEmail(dto.email, token);
-    return { message: 'Signup successful, verification email sent.' };
+    await this.mailService.sendVerificationEmail(dto.email, code);
+    return { message: 'Signup successful, verification code sent.' };
   }
 
   async verifyEmail(dto: VerifyEmailDto): Promise<{ message: string }> {
-    if (!dto || !dto.token) {
-      throw new BadRequestException('Token is required');
+    if (!dto || !dto.code) {
+      throw new BadRequestException('Code is required');
     }
 
-    // Find all tokens for this user that are not used
-    const tokens = await this.prisma.verificationToken.findMany({
-      where: { usedAt: null },
-      include: { user: true },
+    // Find the code that matches and is not used
+    const verificationToken = await this.prisma.verificationToken.findFirst({
+      where: {
+        verificationToken: dto.code,
+        usedAt: null,
+        expiresAt: { gt: new Date() },
+      },
     });
 
-    // Find the token that matches using bcrypt.compare
-    let verificationToken = null;
-    for (const tokenObj of tokens) {
-      if (dto.token === tokenObj.verificationToken) {
-        verificationToken = tokenObj;
-        break;
-      }
-    }
-
     if (!verificationToken) {
-      throw new BadRequestException('Invalid or already used token');
-    }
-
-    if (verificationToken.expiresAt < new Date()) {
-      throw new BadRequestException('Token expired');
+      throw new BadRequestException('Invalid, expired, or already used code');
     }
 
     // Mark user's email as verified
@@ -89,7 +79,7 @@ export class AuthService {
       data: { emailVerified: true },
     });
 
-    // Mark token as used
+    // Mark code as used
     await this.prisma.verificationToken.update({
       where: { id: verificationToken.id },
       data: { usedAt: new Date() },
@@ -302,39 +292,39 @@ export class AuthService {
     if (!user) {
       return {
         message:
-          'If your email is registered, you will receive a password reset link.',
+          'If your email is registered, you will receive a password reset code.',
       };
     }
 
-    // Generate reset token
-    const token = uuidv4();
-    const expiresAt = new Date(Date.now() + 1000 * 60 * 60); // 1 hour expiry
+    // Generate 6-digit code
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 1000 * 60 * 10); // 10 min expiry
 
-    // Store the token in the database
+    // Store the code in the database
     await this.prisma.passwordResetToken.create({
       data: {
         userId: user.id,
-        resetToken: token,
+        resetToken: code,
         expiresAt,
       },
     });
 
-    // Send the email with the token
-    await this.mailService.sendPasswordResetEmail(user.email, token);
+    // Send the email with the code
+    await this.mailService.sendPasswordResetEmail(user.email, code);
 
     return {
       message:
-        'If your email is registered, you will receive a password reset link.',
+        'If your email is registered, you will receive a password reset code.',
     };
   }
 
-  async verifyResetToken(
-    token: string,
+  async verifyResetCode(
+    code: string,
   ): Promise<{ valid: boolean; message: string; accessToken?: string }> {
-    // Find all valid (not used, not expired) tokens
+    // Find all valid (not used, not expired) codes
     const resetToken = await this.prisma.passwordResetToken.findFirst({
       where: {
-        resetToken: token,
+        resetToken: code,
         usedAt: null,
         expiresAt: { gt: new Date() },
       },
@@ -342,7 +332,7 @@ export class AuthService {
     });
 
     if (!resetToken) {
-      return { valid: false, message: 'Invalid or expired token' };
+      return { valid: false, message: 'Invalid or expired code' };
     }
 
     // create new access token valid for 15 minutes
@@ -351,7 +341,7 @@ export class AuthService {
       expiresIn: '15m',
     });
 
-    // update the token as used
+    // update the code as used
     await this.prisma.passwordResetToken.update({
       where: { id: resetToken.id },
       data: { usedAt: new Date() },
