@@ -1,9 +1,15 @@
+-- CreateEnum
+CREATE TYPE "public"."AuthProvider" AS ENUM ('LOCAL', 'GOOGLE');
+
 -- CreateTable
 CREATE TABLE "public"."User" (
     "id" TEXT NOT NULL,
     "email" TEXT NOT NULL,
-    "passwordHash" TEXT NOT NULL,
+    "passwordHash" TEXT,
     "emailVerified" BOOLEAN NOT NULL DEFAULT false,
+    "provider" "public"."AuthProvider" NOT NULL DEFAULT 'LOCAL',
+    "providerId" TEXT,
+    "displayName" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -14,7 +20,7 @@ CREATE TABLE "public"."User" (
 CREATE TABLE "public"."VerificationToken" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
-    "hashedToken" TEXT NOT NULL,
+    "verificationToken" TEXT NOT NULL,
     "expiresAt" TIMESTAMP(3) NOT NULL,
     "usedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -26,7 +32,7 @@ CREATE TABLE "public"."VerificationToken" (
 CREATE TABLE "public"."RefreshToken" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
-    "hashedToken" TEXT NOT NULL,
+    "refreshToken" TEXT NOT NULL,
     "expiresAt" TIMESTAMP(3) NOT NULL,
     "revokedAt" TIMESTAMP(3),
     "replacedById" TEXT,
@@ -39,7 +45,7 @@ CREATE TABLE "public"."RefreshToken" (
 CREATE TABLE "public"."PasswordResetToken" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
-    "hashedToken" TEXT NOT NULL,
+    "resetToken" TEXT NOT NULL,
     "expiresAt" TIMESTAMP(3) NOT NULL,
     "usedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -47,8 +53,40 @@ CREATE TABLE "public"."PasswordResetToken" (
     CONSTRAINT "PasswordResetToken_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateTable
+CREATE TABLE "public"."Space" (
+    "id" TEXT NOT NULL,
+    "slug" VARCHAR(255) NOT NULL,
+    "name" VARCHAR(255) NOT NULL,
+    "ownerId" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "Space_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "public"."SpaceLogo" (
+    "id" TEXT NOT NULL,
+    "spaceId" TEXT NOT NULL,
+    "data" BYTEA,
+    "contentType" VARCHAR(255),
+    "hash" VARCHAR(64),
+
+    CONSTRAINT "SpaceLogo_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "User_email_key" ON "public"."User"("email");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "User_providerId_key" ON "public"."User"("providerId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Space_slug_key" ON "public"."Space"("slug");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "SpaceLogo_spaceId_key" ON "public"."SpaceLogo"("spaceId");
 
 -- AddForeignKey
 ALTER TABLE "public"."VerificationToken" ADD CONSTRAINT "VerificationToken_userId_fkey" FOREIGN KEY ("userId") REFERENCES "public"."User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -58,3 +96,9 @@ ALTER TABLE "public"."RefreshToken" ADD CONSTRAINT "RefreshToken_userId_fkey" FO
 
 -- AddForeignKey
 ALTER TABLE "public"."PasswordResetToken" ADD CONSTRAINT "PasswordResetToken_userId_fkey" FOREIGN KEY ("userId") REFERENCES "public"."User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "public"."Space" ADD CONSTRAINT "Space_ownerId_fkey" FOREIGN KEY ("ownerId") REFERENCES "public"."User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "public"."SpaceLogo" ADD CONSTRAINT "SpaceLogo_spaceId_fkey" FOREIGN KEY ("spaceId") REFERENCES "public"."Space"("id") ON DELETE CASCADE ON UPDATE CASCADE;
