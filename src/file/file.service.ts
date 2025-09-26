@@ -31,10 +31,25 @@ export class FileService {
       throw new BadRequestException('S3 key cannot be empty.');
     }
 
+    const space = await this.prisma.space.findUnique({
+      where: { id: dto.spaceId },
+      select: { ownerId: true },
+    });
+
+    if (!space) {
+      throw new NotFoundException('Space not found.');
+    }
+
+    if (space.ownerId !== userId) {
+      throw new ForbiddenException(
+        'You do not have permission to create files in this space.',
+      );
+    }
+
     const file = await this.prisma.file.create({
       data: {
         spaceId: dto.spaceId,
-        userId,
+        userId: space.ownerId,
         filename,
         mimetype,
         size: BigInt(dto.size),
@@ -55,8 +70,10 @@ export class FileService {
   ): Promise<FileResponseDto[]> {
     const files = await this.prisma.file.findMany({
       where: {
-        userId,
-        ...(query.spaceId ? { spaceId: query.spaceId } : {}),
+        space: {
+          ownerId: userId,
+          ...(query.spaceId ? { id: query.spaceId } : {}),
+        },
         ...(query.status ? { status: query.status } : {}),
       },
       orderBy: { uploadedAt: 'desc' },
@@ -67,7 +84,10 @@ export class FileService {
 
   async findOne(fileId: string, userId: string): Promise<FileResponseDto> {
     const file = await this.prisma.file.findFirst({
-      where: { id: fileId, userId },
+      where: {
+        id: fileId,
+        space: { ownerId: userId },
+      },
     });
 
     if (!file) {
@@ -152,10 +172,10 @@ export class FileService {
   async getOwnerId(fileId: string): Promise<string | null> {
     const file = await this.prisma.file.findUnique({
       where: { id: fileId },
-      select: { userId: true },
+      select: { space: { select: { ownerId: true } } },
     });
 
-    return file?.userId ?? null;
+    return file?.space.ownerId ?? null;
   }
 
   private async ensureUserOwnsFile(
@@ -164,14 +184,14 @@ export class FileService {
   ): Promise<void> {
     const file = await this.prisma.file.findUnique({
       where: { id: fileId },
-      select: { userId: true },
+      select: { space: { select: { ownerId: true } } },
     });
 
     if (!file) {
       throw new NotFoundException('File not found.');
     }
 
-    if (file.userId !== userId) {
+    if (file.space.ownerId !== userId) {
       throw new ForbiddenException(
         'You do not have permission to modify this file.',
       );
