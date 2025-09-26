@@ -29,7 +29,6 @@ import { GoogleOAuthGuard } from './guards/google-oauth.guard';
 import { GoogleTokenDto } from './dto/google-token.dto';
 import {
   AuthTokensResponseDto,
-  MessageResponseDto,
   VerifyResetCodeResponseDto,
 } from './dto/auth-responses.dto';
 import { VerifyResetCodeDto } from './dto/verify-reset-code.dto';
@@ -48,7 +47,6 @@ export class AuthController {
   @ApiResponse({
     status: 201,
     description: 'Signup succeeded and a verification OTP has been emailed.',
-    type: MessageResponseDto,
   })
   @ApiResponse({ status: 400, description: 'Invalid signup payload.' })
   @ApiResponse({ status: 401, description: 'Unauthorized signup attempt.' })
@@ -70,7 +68,6 @@ export class AuthController {
   @ApiResponse({
     status: 200,
     description: 'OTP verified successfully; account is now active.',
-    type: MessageResponseDto,
   })
   @ApiResponse({ status: 400, description: 'Invalid or expired OTP code.' })
   @ApiResponse({ status: 401, description: 'Unauthorized request.' })
@@ -206,7 +203,6 @@ export class AuthController {
   @ApiResponse({
     status: 200,
     description: 'Password updated and existing refresh tokens revoked.',
-    type: MessageResponseDto,
   })
   @ApiResponse({ status: 400, description: 'Invalid change password payload.' })
   @ApiResponse({ status: 401, description: 'Authentication required.' })
@@ -226,7 +222,6 @@ export class AuthController {
   @ApiResponse({
     status: 200,
     description: 'Password reset OTP dispatched if the email exists.',
-    type: MessageResponseDto,
   })
   @ApiResponse({ status: 400, description: 'Invalid email supplied.' })
   @ApiResponse({ status: 401, description: 'Unauthorized request.' })
@@ -264,7 +259,6 @@ export class AuthController {
   @ApiResponse({
     status: 200,
     description: 'Password reset successfully; all refresh tokens revoked.',
-    type: MessageResponseDto,
   })
   @ApiResponse({ status: 400, description: 'Invalid reset password payload.' })
   @ApiResponse({
