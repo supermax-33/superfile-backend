@@ -1,12 +1,14 @@
 import {
-  Controller,
-  Post,
   Body,
-  Version,
-  UseGuards,
+  Controller,
+  Get,
+  Post,
   Request,
   UseFilters,
+  UseGuards,
+  Version,
 } from '@nestjs/common';
+import { Profile } from 'passport-google-oauth20';
 import { AuthService } from './auth.service';
 import { VerifyEmailDto } from './dto/verify-email.dto'; // Added missing import for VerifyEmailDto
 import { JwtExceptionFilter } from './filters/jwt-exception.filter';
@@ -17,6 +19,8 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { GoogleOAuthGuard } from './guards/google-oauth.guard';
+import { GoogleTokenDto } from './dto/google-token.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -39,6 +43,35 @@ export class AuthController {
   @Post('login')
   async login(@Body() loginDto: LoginDto) {
     return this.authService.login(loginDto);
+  }
+
+  @Version('1')
+  @Get('google')
+  @UseGuards(GoogleOAuthGuard)
+  async googleAuth() {
+    // Guard redirects the user to Google's consent screen.
+    return;
+  }
+
+  @Version('1')
+  @Get('google/callback')
+  @UseGuards(GoogleOAuthGuard)
+  async googleCallback(@Request() req: { user: Profile }) {
+    // req.user is hydrated by the Google strategy and contains the OAuth profile.
+    const profile = req.user;
+    return this.authService.handleGoogleOAuthLogin({
+      id: profile.id,
+      email: profile.emails?.[0]?.value,
+      displayName: profile.displayName,
+      emailVerified: profile.emails?.[0]?.verified,
+    });
+  }
+
+  @Version('1')
+  @Post('google/token')
+  async googleTokenLogin(@Body() dto: GoogleTokenDto) {
+    // Mobile clients exchange the Google ID token for our first-party JWTs.
+    return this.authService.loginWithGoogleIdToken(dto.idToken);
   }
 
   @Version('1')
