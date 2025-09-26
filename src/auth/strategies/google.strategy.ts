@@ -17,15 +17,8 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
     const clientSecret = configService.get<string>('GOOGLE_CLIENT_SECRET');
     const callbackURL = configService.get<string>(
       'GOOGLE_CALLBACK_URL',
-      'http://localhost:3000/auth/google/callback',
+      'http://localhost:3000/api/v1/auth/google/callback',
     );
-
-    if (!clientID || !clientSecret) {
-      // Logging helps operators spot misconfiguration early in non-local envs.
-      this.logger.warn(
-        'Google OAuth is not fully configured; set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to enable it.',
-      );
-    }
 
     super({
       clientID: clientID ?? '',
@@ -33,6 +26,13 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
       callbackURL,
       scope: ['email', 'profile'],
     });
+
+    if (!clientID || !clientSecret) {
+      // Logging helps operators spot misconfiguration early in non-local envs.
+      this.logger.warn(
+        'Google OAuth is not fully configured; set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to enable it.',
+      );
+    }
   }
 
   async validate(
