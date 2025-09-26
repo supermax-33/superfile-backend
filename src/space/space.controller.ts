@@ -14,6 +14,8 @@ import {
   UseGuards,
   UseInterceptors,
   UnauthorizedException,
+  Version,
+  UseFilters,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
@@ -32,6 +34,7 @@ import { UpdateSpaceDto } from './dto/update-space.dto';
 import { UpdateSpaceLogoDto } from './dto/update-space-logo.dto';
 import { SpaceOwnerGuard } from './guards/space-owner.guard';
 import { SpaceService } from './space.service';
+import { JwtExceptionFilter } from 'src/auth/filters/jwt-exception.filter';
 
 interface RequestWithUser extends Request {
   user?: {
@@ -44,9 +47,11 @@ interface RequestWithUser extends Request {
 export class SpaceController {
   constructor(private readonly spaceService: SpaceService) {}
 
+  @Version('1')
   @Post()
+  @UseFilters(JwtExceptionFilter)
   @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
+  @ApiBearerAuth('access-token')
   @ApiOperation({ summary: 'Create a new space.' })
   @ApiResponse({
     status: 201,
@@ -69,9 +74,11 @@ export class SpaceController {
     return this.spaceService.create(ownerId, dto);
   }
 
+  @Version('1')
   @Patch(':id')
+  @UseFilters(JwtExceptionFilter)
   @UseGuards(JwtAuthGuard, SpaceOwnerGuard)
-  @ApiBearerAuth()
+  @ApiBearerAuth('access-token')
   @ApiOperation({ summary: 'Update the name or slug of an existing space.' })
   @ApiResponse({
     status: 200,
@@ -92,9 +99,11 @@ export class SpaceController {
     return this.spaceService.update(spaceId, dto);
   }
 
+  @Version('1')
   @Delete(':id')
   @UseGuards(JwtAuthGuard, SpaceOwnerGuard)
-  @ApiBearerAuth()
+  @UseFilters(JwtExceptionFilter)
+  @ApiBearerAuth('access-token')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete a space permanently.' })
   @ApiResponse({ status: 204, description: 'Space deleted successfully.' })
@@ -108,10 +117,12 @@ export class SpaceController {
     await this.spaceService.delete(spaceId);
   }
 
+  @Version('1')
   @Put(':id/logo')
   @UseGuards(JwtAuthGuard, SpaceOwnerGuard)
+  @UseFilters(JwtExceptionFilter)
   @UseInterceptors(FileInterceptor('file'))
-  @ApiBearerAuth()
+  @ApiBearerAuth('access-token')
   @ApiConsumes('multipart/form-data')
   @ApiBody({ type: UpdateSpaceLogoDto })
   @ApiOperation({
