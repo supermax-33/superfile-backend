@@ -67,3 +67,25 @@ model PasswordResetToken {
 
   user User @relation(fields: [userId], references: [id])
 }
+
+model Space {
+  id        String   @id @default(uuid()) @db.Uuid
+  slug      String   @unique @db.VarChar(255)
+  name      String   @db.VarChar(255)
+  ownerId   String   @db.Uuid
+
+  owner     User      @relation(fields: [ownerId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  logo      SpaceLogo?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model SpaceLogo {
+  id          String  @id @default(uuid()) @db.Uuid
+  spaceId     String  @unique @db.Uuid
+  data        Bytes?
+  contentType String? @db.VarChar(255)
+  hash        String? @db.VarChar(64)
+
+  space Space @relation(fields: [spaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+}
