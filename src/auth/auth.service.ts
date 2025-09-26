@@ -10,7 +10,7 @@ import { ConfigService } from '@nestjs/config';
 import { AuthProvider, User } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { OAuth2Client } from 'google-auth-library';
-import ms from 'ms';
+import * as ms from 'ms';
 import { MailService } from 'src/mail/mail.service';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { ChangePasswordDto } from './dto/change-password.dto';
