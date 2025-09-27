@@ -26,6 +26,11 @@ interface ValidateSessionParams {
   refreshToken: string;
 }
 
+interface AssertSessionActiveParams {
+  sessionId: string;
+  userId: string;
+}
+
 @Injectable()
 export class SessionService {
   constructor(private readonly prisma: PrismaService) {}
@@ -120,6 +125,32 @@ export class SessionService {
     }
 
     throw new UnauthorizedException('Refresh token is invalid.');
+  }
+
+  async assertSessionIsActive(
+    params: AssertSessionActiveParams,
+  ): Promise<Session> {
+    // Access-token guarded requests call this to hard-stop any revoked or expired
+    // session so that previously issued JWTs do not remain usable after logout.
+    const { sessionId, userId } = params;
+    const session = await this.prisma.session.findUnique({
+      where: { id: sessionId },
+    });
+
+    if (!session || session.userId !== userId) {
+      throw new UnauthorizedException('Session not found.');
+    }
+
+    if (session.revokedAt) {
+      throw new UnauthorizedException('Session has been revoked.');
+    }
+
+    if (session.expiresAt <= new Date()) {
+      await this.revokeSession(session.id);
+      throw new UnauthorizedException('Session has expired.');
+    }
+
+    return session;
   }
 
   async listActiveSessions(userId: string): Promise<Session[]> {
