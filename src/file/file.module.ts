@@ -24,29 +24,14 @@ import { OPENAI_CLIENT_TOKEN, S3_CLIENT_TOKEN } from './file.tokens';
       provide: S3_CLIENT_TOKEN,
       inject: [ConfigService],
       useFactory: (config: ConfigService) => {
-        const region =
-          config.get<string>('AWS_S3_REGION') ??
-          config.get<string>('AWS_REGION');
-        const accessKeyId = config.get<string>('AWS_ACCESS_KEY_ID');
-        const secretAccessKey = config.get<string>('AWS_SECRET_ACCESS_KEY');
-        const sessionToken = config.get<string>('AWS_SESSION_TOKEN');
+        const region = config.get<string>('AWS_REGION');
 
         if (!region) {
           throw new Error('AWS_S3_REGION or AWS_REGION must be configured');
         }
-        if (!accessKeyId || !secretAccessKey) {
-          throw new Error(
-            'AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY must be configured',
-          );
-        }
 
         return new S3Client({
           region,
-          credentials: {
-            accessKeyId,
-            secretAccessKey,
-            sessionToken: sessionToken ?? undefined,
-          },
         });
       },
     },
