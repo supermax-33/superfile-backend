@@ -8,13 +8,11 @@ async function bootstrap() {
   app.enableVersioning();
 
   const config = new DocumentBuilder()
-    .setTitle('Superfile Authentication API')
-    .setDescription(
-      'Authentication endpoints for the Superfile platform. Use these routes to register, verify OTP codes, manage sessions, and perform Google sign-ins from web or mobile clients.',
-    )
+    .setTitle('Superfile APIs')
+    .setDescription('API endpoints for the Superfile platform.')
     .setVersion('1.0')
     .addServer('http://localhost:3000', 'Local development server')
-    .addServer('https://api.superfile.local', 'Staging/production gateway')
+    .addServer('https://superfile.app', 'Production gateway')
     .addBearerAuth(
       {
         type: 'http',
