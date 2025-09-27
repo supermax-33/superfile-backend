@@ -114,3 +114,79 @@ curl -X POST http://localhost:3000/v1/auth/change-password \
   -d '{"currentPassword":"...","newPassword":"..."}'
 ```
 If the token is missing, expired, or invalid, the response will be `401 Unauthorized` with a descriptive error message provided by `JwtExceptionFilter`.
+
+---
+
+# Testing the Files API
+
+The Files service exposes versioned endpoints under `/v1/files` and requires the same JWT bearer token used by the authentication flows above. Before exercising the endpoints:
+
+1. Ensure the following environment variables are populated so the server can reach Amazon S3 and OpenAI:
+   ```env
+   AWS_ACCESS_KEY_ID="..."
+   AWS_SECRET_ACCESS_KEY="..."
+   AWS_REGION="us-east-1"
+   AWS_S3_BUCKET="your-bucket-name"
+   OPENAI_API_KEY="sk-..."
+   ```
+2. Confirm the target space exists (see the space creation endpoints) and capture its `id`.
+3. Start the NestJS server if it is not already running:
+   ```bash
+   pnpm start:dev
+   ```
+
+## Upload PDFs (multipart)
+
+Use Postman or the CLI to send a multipart request with one or more PDF files. All files must belong to the same space.
+
+### Postman
+
+1. Create a new `POST` request to `http://localhost:3000/v1/files`.
+2. Add an `Authorization` header with `Bearer <ACCESS_TOKEN>`.
+3. Select **Body → form-data** and add the following fields:
+   - Key `spaceId` (type `Text`) with the UUID of the space that should own the files.
+   - Key `files` (type `File`). Add one or more rows, attaching a PDF to each.
+4. Send the request. The response contains an array of file metadata objects including `status`, `s3Key`, and `openAiFileId`.
+
+### curl
+
+```bash
+curl -X POST http://localhost:3000/v1/files \
+  -H 'Authorization: Bearer <ACCESS_TOKEN>' \
+  -F 'spaceId=<SPACE_ID>' \
+  -F 'files=@/path/to/document.pdf;type=application/pdf'
+```
+
+## Check Upload Progress
+
+While an upload is in flight, poll the progress endpoint (returns 100 once the upload completes and the in-memory entry is cleared):
+
+```bash
+curl -X GET http://localhost:3000/v1/files/<FILE_ID>/progress \
+  -H 'Authorization: Bearer <ACCESS_TOKEN>'
+```
+
+## Refresh OpenAI Ingestion Status
+
+```bash
+curl -X PATCH http://localhost:3000/v1/files/<FILE_ID>/status \
+  -H 'Authorization: Bearer <ACCESS_TOKEN>'
+```
+The response echoes the updated metadata. Expect `status` to become `SUCCESS` once OpenAI completes ingestion. Errors are captured in the `error` field.
+
+## Download a File
+
+```bash
+curl -X GET http://localhost:3000/v1/files/<FILE_ID> \
+  -H 'Authorization: Bearer <ACCESS_TOKEN>' \
+  -L -o downloaded.pdf
+```
+
+## Delete a File
+
+```bash
+curl -X DELETE http://localhost:3000/v1/files/<FILE_ID> \
+  -H 'Authorization: Bearer <ACCESS_TOKEN>'
+```
+
+When the delete call succeeds the record is removed from Prisma, the object is purged from S3, and (if one exists) the associated OpenAI vector store file is deleted.
