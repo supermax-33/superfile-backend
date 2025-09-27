@@ -20,7 +20,7 @@ import {
   Version,
   StreamableFile,
 } from '@nestjs/common';
-import { Request, Response } from 'express';
+import { Response } from 'express';
 import {
   ApiBearerAuth,
   ApiBody,
@@ -44,12 +44,7 @@ import {
   MAX_FILE_SIZE_BYTES,
 } from './file.constants';
 import { FileProgressResponseDto } from './dto/file-progress-response.dto';
-
-interface RequestWithUser extends Request {
-  user?: {
-    userId: string;
-  };
-}
+import { RequestWithUser } from 'types';
 
 const uploadInterceptor = FilesInterceptor(FILE_UPLOAD_FIELD, undefined, {
   storage: memoryStorage(),

@@ -12,7 +12,6 @@ async function bootstrap() {
     .setDescription('API endpoints for the Superfile platform.')
     .setVersion('1.0')
     .addServer('http://localhost:3000', 'Local development server')
-    .addServer('https://superfile.app', 'Production gateway')
     .addBearerAuth(
       {
         type: 'http',
@@ -24,6 +23,9 @@ async function bootstrap() {
       'access-token',
     )
     .addTag('auth', 'Authentication endpoints')
+    .addTag('sessions', 'User session management endpoints')
+    .addTag('spaces', 'Space management endpoints')
+    .addTag('files', 'File management endpoints')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);

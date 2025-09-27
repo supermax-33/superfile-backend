@@ -9,20 +9,7 @@ import { Upload } from '@aws-sdk/lib-storage';
 import { Readable } from 'node:stream';
 import { S3_CLIENT_TOKEN } from './file.tokens';
 import { ConfigService } from '@nestjs/config';
-
-export type UploadParams = {
-  key: string;
-  body: Readable | Buffer;
-  contentType: string;
-  contentLength: number;
-  onProgress?: (loadedBytes: number, totalBytes?: number) => void;
-};
-
-export type DownloadResult = {
-  stream: Readable;
-  contentType?: string;
-  contentLength?: number;
-};
+import { DownloadResult, UploadParams } from 'types';
 
 @Injectable()
 export class S3FileStorageService {

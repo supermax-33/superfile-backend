@@ -2,34 +2,12 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { Session } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
-
-interface CreateSessionParams {
-  id: string;
-  userId: string;
-  refreshToken: string;
-  ipAddress?: string;
-  userAgent?: string;
-  expiresAt: Date;
-}
-
-interface RotateSessionParams {
-  sessionId: string;
-  refreshToken: string;
-  ipAddress?: string;
-  userAgent?: string;
-  expiresAt: Date;
-}
-
-interface ValidateSessionParams {
-  sessionId: string;
-  userId: string;
-  refreshToken: string;
-}
-
-interface AssertSessionActiveParams {
-  sessionId: string;
-  userId: string;
-}
+import {
+  AssertSessionActiveParams,
+  CreateSessionParams,
+  RotateSessionParams,
+  ValidateSessionParams,
+} from 'types';
 
 @Injectable()
 export class SessionService {

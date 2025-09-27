@@ -26,7 +26,7 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { Express, Request } from 'express';
+import { Express } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CreateSpaceDto } from './dto/create-space.dto';
 import { SpaceResponseDto } from './dto/space-response.dto';
@@ -35,12 +35,7 @@ import { UpdateSpaceLogoDto } from './dto/update-space-logo.dto';
 import { SpaceOwnerGuard } from './guards/space-owner.guard';
 import { SpaceService } from './space.service';
 import { JwtExceptionFilter } from 'src/auth/filters/jwt-exception.filter';
-
-interface RequestWithUser extends Request {
-  user?: {
-    userId: string;
-  };
-}
+import { RequestWithUser } from 'types';
 
 @ApiTags('spaces')
 @Controller('spaces')

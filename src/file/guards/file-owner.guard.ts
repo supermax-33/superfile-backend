@@ -7,14 +7,8 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { Request } from 'express';
 import { FileService } from '../file.service';
-
-interface RequestWithUser extends Request {
-  user?: {
-    userId: string;
-  };
-}
+import { RequestWithUser } from 'types';
 
 @Injectable()
 export class FileOwnerGuard implements CanActivate {

@@ -22,18 +22,7 @@ import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
-
-interface OAuthProfile {
-  id: string;
-  email?: string | null;
-  displayName?: string | null;
-  emailVerified?: boolean;
-}
-
-interface SessionMetadata {
-  ipAddress?: string;
-  userAgent?: string;
-}
+import { OAuthProfile, SessionMetadata } from 'types';
 
 @Injectable()
 export class AuthService {

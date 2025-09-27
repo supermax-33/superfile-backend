@@ -1,21 +1,5 @@
 import { Injectable } from '@nestjs/common';
-
-type FileUploadProgressState = {
-  fileId: string;
-  bytesTransferred: number;
-  bytesTotal: number;
-  startedAt: Date;
-  updatedAt: Date;
-};
-
-export type FileUploadProgressSnapshot = {
-  fileId: string;
-  bytesTransferred: number;
-  bytesTotal: number;
-  percent: number;
-  startedAt: Date;
-  updatedAt: Date;
-};
+import { FileUploadProgressSnapshot, FileUploadProgressState } from 'types';
 
 @Injectable()
 export class FileProgressService {
