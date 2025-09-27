@@ -4,6 +4,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { PassportModule } from '@nestjs/passport';
 import { PrismaModule } from 'src/prisma/prisma.module';
 import { MailModule } from 'src/mail/mail.module';
+import { SessionModule } from 'src/sessions/session.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtExceptionFilter } from './filters/jwt-exception.filter';
@@ -15,6 +16,7 @@ import { GoogleStrategy } from './strategies/google.strategy';
     ConfigModule,
     PrismaModule,
     MailModule,
+    SessionModule,
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       imports: [ConfigModule],

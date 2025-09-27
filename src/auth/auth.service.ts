@@ -7,12 +7,14 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { AuthProvider, User } from '@prisma/client';
+import { AuthProvider, Session, User } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { OAuth2Client } from 'google-auth-library';
 import * as ms from 'ms';
+import { randomUUID } from 'crypto';
 import { MailService } from 'src/mail/mail.service';
 import { PrismaService } from 'src/prisma/prisma.service';
+import { SessionService } from 'src/sessions/session.service';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
@@ -26,6 +28,11 @@ interface OAuthProfile {
   email?: string | null;
   displayName?: string | null;
   emailVerified?: boolean;
+}
+
+interface SessionMetadata {
+  ipAddress?: string;
+  userAgent?: string;
 }
 
 @Injectable()
@@ -43,6 +50,7 @@ export class AuthService {
     private readonly mailService: MailService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly sessionService: SessionService,
   ) {
     this.otpLength = Number(
       this.configService.get('AUTH_EMAIL_OTP_LENGTH') ?? 6,
@@ -112,33 +120,52 @@ export class AuthService {
     await this.mailService.sendVerificationEmail(email, code);
   }
 
-  private async issueTokens(user: User, replacedTokenId?: string) {
+  private async issueTokens(
+    user: User,
+    options: {
+      session?: Session;
+      sessionId?: string;
+      metadata?: SessionMetadata;
+    } = {},
+  ) {
+    // Each token carries the session id (`sid`) claim so we can validate the
+    // refresh flow against a single persisted session entry in the database.
+    const sessionId = options.session?.id ?? options.sessionId ?? randomUUID();
     const payload = {
       sub: user.id,
       email: user.email,
       provider: user.provider,
+      sid: sessionId,
     };
 
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(payload, { expiresIn: this.accessTokenTtl }),
-      this.jwtService.signAsync(payload, { expiresIn: this.refreshTokenTtl }),
+      this.jwtService.signAsync(
+        { ...payload, type: 'refresh' },
+        {
+          expiresIn: this.refreshTokenTtl,
+        },
+      ),
     ]);
 
-    const refreshTokenRecord = await this.prisma.refreshToken.create({
-      data: {
+    const expiresAt = new Date(Date.now() + this.refreshTokenExpiryMs);
+
+    if (options.session) {
+      await this.sessionService.rotateSessionToken({
+        sessionId: options.session.id,
+        refreshToken,
+        ipAddress: options.metadata?.ipAddress,
+        userAgent: options.metadata?.userAgent,
+        expiresAt,
+      });
+    } else {
+      await this.sessionService.createSession({
+        id: sessionId,
         userId: user.id,
         refreshToken,
-        expiresAt: new Date(Date.now() + this.refreshTokenExpiryMs),
-      },
-    });
-
-    if (replacedTokenId) {
-      await this.prisma.refreshToken.update({
-        where: { id: replacedTokenId },
-        data: {
-          revokedAt: new Date(),
-          replacedById: refreshTokenRecord.id,
-        },
+        ipAddress: options.metadata?.ipAddress,
+        userAgent: options.metadata?.userAgent,
+        expiresAt,
       });
     }
 
@@ -209,7 +236,7 @@ export class AuthService {
     return { message: 'Email verified successfully' };
   }
 
-  async login(dto: LoginDto) {
+  async login(dto: LoginDto, metadata: SessionMetadata = {}) {
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });
@@ -227,51 +254,45 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    return this.issueTokens(user);
+    return this.issueTokens(user, { metadata });
   }
 
-  async refreshToken(dto: RefreshTokenDto) {
+  async refreshToken(dto: RefreshTokenDto, metadata: SessionMetadata = {}) {
     if (!dto.refreshToken) {
       throw new BadRequestException('Refresh token is required');
     }
 
-    let decoded: { sub: string; email: string };
+    let decoded: { sub: string; email: string; sid?: string; type?: string };
     try {
       decoded = await this.jwtService.verifyAsync(dto.refreshToken);
     } catch {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
-    const storedToken = await this.prisma.refreshToken.findFirst({
-      where: { refreshToken: dto.refreshToken },
-    });
-
-    if (!storedToken || storedToken.userId !== decoded.sub) {
-      throw new UnauthorizedException('Invalid refresh token');
+    if (decoded.type !== 'refresh') {
+      throw new UnauthorizedException('Invalid refresh token type');
     }
 
-    if (storedToken.revokedAt) {
+    if (!decoded.sid) {
       throw new UnauthorizedException(
-        'Refresh token re-used. Security breach detected.',
+        'Refresh token missing session identifier',
       );
     }
 
-    if (storedToken.expiresAt < new Date()) {
-      await this.prisma.refreshToken.update({
-        where: { id: storedToken.id },
-        data: { revokedAt: new Date() },
-      });
-      throw new UnauthorizedException('Refresh token expired');
-    }
+    const session = await this.sessionService.validateSessionToken({
+      sessionId: decoded.sid,
+      userId: decoded.sub,
+      refreshToken: dto.refreshToken,
+    });
 
     const user = await this.prisma.user.findUnique({
-      where: { id: storedToken.userId },
+      where: { id: decoded.sub },
     });
     if (!user) {
       throw new UnauthorizedException('User not found');
     }
 
-    return this.issueTokens(user, storedToken.id);
+    return this.issueTokens(user, { session, metadata });
   }
 
   async changePassword(
@@ -311,10 +332,7 @@ export class AuthService {
       data: { passwordHash: newPasswordHash },
     });
 
-    await this.prisma.refreshToken.updateMany({
-      where: { userId: user.id, revokedAt: null },
-      data: { revokedAt: new Date() },
-    });
+    await this.sessionService.revokeAllSessionsForUser(user.id);
 
     return { message: 'Password updated successfully. Please log in again.' };
   }
@@ -412,15 +430,15 @@ export class AuthService {
       data: { passwordHash: newPasswordHash },
     });
 
-    await this.prisma.refreshToken.updateMany({
-      where: { userId: userPayload.sub, revokedAt: null },
-      data: { revokedAt: new Date() },
-    });
+    await this.sessionService.revokeAllSessionsForUser(userPayload.sub);
 
     return { message: 'Password reset successful. Please log in again.' };
   }
 
-  async handleGoogleOAuthLogin(profile: OAuthProfile) {
+  async handleGoogleOAuthLogin(
+    profile: OAuthProfile,
+    metadata: SessionMetadata = {},
+  ) {
     if (!profile.email) {
       throw new UnauthorizedException(
         'Google account does not expose an email',
@@ -466,10 +484,13 @@ export class AuthService {
       });
     }
 
-    return this.issueTokens(user);
+    return this.issueTokens(user, { metadata });
   }
 
-  async loginWithGoogleIdToken(idToken: string) {
+  async loginWithGoogleIdToken(
+    idToken: string,
+    metadata: SessionMetadata = {},
+  ) {
     const audience = this.configService.get<string>('GOOGLE_CLIENT_ID');
     if (!audience) {
       throw new BadRequestException(
@@ -492,11 +513,14 @@ export class AuthService {
       throw new UnauthorizedException('Invalid Google token payload');
     }
 
-    return this.handleGoogleOAuthLogin({
-      id: payload.sub,
-      email: payload.email,
-      displayName: payload.name,
-      emailVerified: payload.email_verified,
-    });
+    return this.handleGoogleOAuthLogin(
+      {
+        id: payload.sub,
+        email: payload.email,
+        displayName: payload.name,
+        emailVerified: payload.email_verified,
+      },
+      metadata,
+    );
   }
 }

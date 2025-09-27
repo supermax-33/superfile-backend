@@ -3,11 +3,12 @@ import {
   Controller,
   Get,
   Post,
-  Request,
+  Req,
   UseFilters,
   UseGuards,
   Version,
 } from '@nestjs/common';
+import { Request as ExpressRequest } from 'express';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -37,6 +38,18 @@ import { VerifyResetCodeDto } from './dto/verify-reset-code.dto';
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
+
+  private extractSessionMetadata(req: ExpressRequest) {
+    const userAgentHeader = req.headers['user-agent'];
+    return {
+      // Persisting the originating IP and user agent allows operators to
+      // identify anomalous devices when auditing sessions.
+      ipAddress: req.ip,
+      userAgent: Array.isArray(userAgentHeader)
+        ? userAgentHeader.join(' ')
+        : userAgentHeader,
+    };
+  }
 
   @Version('1')
   @Post('signup')
@@ -93,8 +106,8 @@ export class AuthController {
   @ApiResponse({ status: 400, description: 'Invalid login payload.' })
   @ApiResponse({ status: 401, description: 'Invalid credentials.' })
   @ApiResponse({ status: 403, description: 'Email not yet verified.' })
-  async login(@Body() loginDto: LoginDto) {
-    return this.authService.login(loginDto);
+  async login(@Req() req: ExpressRequest, @Body() loginDto: LoginDto) {
+    return this.authService.login(loginDto, this.extractSessionMetadata(req));
   }
 
   @Version('1')
@@ -133,15 +146,18 @@ export class AuthController {
   @ApiResponse({ status: 400, description: 'Invalid callback payload.' })
   @ApiResponse({ status: 401, description: 'Google authentication failed.' })
   @ApiResponse({ status: 403, description: 'Google account forbidden.' })
-  async googleCallback(@Request() req: { user: Profile }) {
+  async googleCallback(@Req() req: ExpressRequest & { user: Profile }) {
     // req.user is hydrated by the Google strategy and contains the OAuth profile.
     const profile = req.user;
-    return this.authService.handleGoogleOAuthLogin({
-      id: profile.id,
-      email: profile.emails?.[0]?.value,
-      displayName: profile.displayName,
-      emailVerified: profile.emails?.[0]?.verified,
-    });
+    return this.authService.handleGoogleOAuthLogin(
+      {
+        id: profile.id,
+        email: profile.emails?.[0]?.value,
+        displayName: profile.displayName,
+        emailVerified: profile.emails?.[0]?.verified,
+      },
+      this.extractSessionMetadata(req),
+    );
   }
 
   @Version('1')
@@ -167,9 +183,15 @@ export class AuthController {
     status: 403,
     description: 'Account forbidden from Google login.',
   })
-  async googleTokenLogin(@Body() dto: GoogleTokenDto) {
+  async googleTokenLogin(
+    @Req() req: ExpressRequest,
+    @Body() dto: GoogleTokenDto,
+  ) {
     // Mobile clients exchange the Google ID token for our first-party JWTs.
-    return this.authService.loginWithGoogleIdToken(dto.idToken);
+    return this.authService.loginWithGoogleIdToken(
+      dto.idToken,
+      this.extractSessionMetadata(req),
+    );
   }
 
   @Version('1')
@@ -188,8 +210,8 @@ export class AuthController {
     description: 'Refresh token invalid or expired.',
   })
   @ApiResponse({ status: 403, description: 'Refresh request forbidden.' })
-  async refreshToken(@Body() dto: RefreshTokenDto) {
-    return this.authService.refreshToken(dto);
+  async refreshToken(@Req() req: ExpressRequest, @Body() dto: RefreshTokenDto) {
+    return this.authService.refreshToken(dto, this.extractSessionMetadata(req));
   }
 
   @Version('1')
@@ -208,7 +230,7 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Authentication required.' })
   @ApiResponse({ status: 403, description: 'Password change forbidden.' })
   async changePassword(
-    @Request() req,
+    @Req() req: ExpressRequest & { user: { userId: string } },
     @Body() changePasswordDto: ChangePasswordDto,
   ) {
     return this.authService.changePassword(req.user.userId, changePasswordDto);

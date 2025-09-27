@@ -30,8 +30,8 @@ model User {
   updatedAt     DateTime     @updatedAt
 
   verificationTokens VerificationToken[]
-  refreshTokens      RefreshToken[]
   resetTokens        PasswordResetToken[]
+  sessions           Session[]
 
   spaces Space[]
   files  File[]
@@ -44,18 +44,6 @@ model VerificationToken {
   expiresAt         DateTime
   usedAt            DateTime?
   createdAt         DateTime  @default(now())
-
-  user User @relation(fields: [userId], references: [id])
-}
-
-model RefreshToken {
-  id           String    @id @default(uuid())
-  userId       String
-  refreshToken String
-  expiresAt    DateTime
-  revokedAt    DateTime?
-  replacedById String?
-  createdAt    DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id])
 }
@@ -92,6 +80,21 @@ model SpaceLogo {
   hash        String? @db.VarChar(64)
 
   space Space @relation(fields: [spaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+}
+
+model Session {
+  id                String   @id @default(uuid())
+  userId            String
+  refreshTokenHash  String
+  previousTokenHash String?
+  ipAddress         String?
+  userAgent         String?
+  createdAt         DateTime @default(now())
+  lastUsedAt        DateTime @default(now())
+  expiresAt         DateTime
+  revokedAt         DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 enum FileStatus {
