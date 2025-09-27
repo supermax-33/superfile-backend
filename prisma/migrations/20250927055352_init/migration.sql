@@ -1,6 +1,9 @@
 -- CreateEnum
 CREATE TYPE "public"."AuthProvider" AS ENUM ('LOCAL', 'GOOGLE');
 
+-- CreateEnum
+CREATE TYPE "public"."FileStatus" AS ENUM ('processing', 'available', 'failed');
+
 -- CreateTable
 CREATE TABLE "public"."User" (
     "id" TEXT NOT NULL,
@@ -76,6 +79,25 @@ CREATE TABLE "public"."SpaceLogo" (
     CONSTRAINT "SpaceLogo_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateTable
+CREATE TABLE "public"."File" (
+    "id" TEXT NOT NULL,
+    "spaceId" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "filename" VARCHAR(1024) NOT NULL,
+    "mimetype" VARCHAR(255) NOT NULL,
+    "size" BIGINT NOT NULL,
+    "status" "public"."FileStatus" NOT NULL DEFAULT 'processing',
+    "s3Key" VARCHAR(2048) NOT NULL,
+    "vectorStoreId" VARCHAR(255),
+    "openAiFileId" VARCHAR(255),
+    "error" VARCHAR(2000),
+    "uploadedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "File_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "User_email_key" ON "public"."User"("email");
 
@@ -102,3 +124,9 @@ ALTER TABLE "public"."Space" ADD CONSTRAINT "Space_ownerId_fkey" FOREIGN KEY ("o
 
 -- AddForeignKey
 ALTER TABLE "public"."SpaceLogo" ADD CONSTRAINT "SpaceLogo_spaceId_fkey" FOREIGN KEY ("spaceId") REFERENCES "public"."Space"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "public"."File" ADD CONSTRAINT "File_spaceId_fkey" FOREIGN KEY ("spaceId") REFERENCES "public"."Space"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "public"."File" ADD CONSTRAINT "File_userId_fkey" FOREIGN KEY ("userId") REFERENCES "public"."User"("id") ON DELETE CASCADE ON UPDATE CASCADE;

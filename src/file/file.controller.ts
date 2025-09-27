@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -10,32 +11,62 @@ import {
   Post,
   Query,
   Req,
+  Res,
+  UploadedFiles,
   UnauthorizedException,
   UseFilters,
   UseGuards,
+  UseInterceptors,
   Version,
+  StreamableFile,
 } from '@nestjs/common';
-import { Request } from 'express';
+import { Request, Response } from 'express';
 import {
   ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
   ApiOperation,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import { FilesInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { JwtExceptionFilter } from 'src/auth/filters/jwt-exception.filter';
-import { CreateFileDto } from './dto/create-file.dto';
 import { FileResponseDto } from './dto/file-response.dto';
 import { ListFilesQueryDto } from './dto/list-files-query.dto';
-import { UpdateFileDto } from './dto/update-file.dto';
 import { FileOwnerGuard } from './guards/file-owner.guard';
 import { FileService } from './file.service';
+import { UploadFilesDto } from './dto/upload-files.dto';
+import {
+  ALLOWED_MIME_TYPES,
+  FILE_UPLOAD_FIELD,
+  MAX_FILE_SIZE_BYTES,
+} from './file.constants';
+import { FileProgressResponseDto } from './dto/file-progress-response.dto';
 
 interface RequestWithUser extends Request {
   user?: {
     userId: string;
   };
 }
+
+const uploadInterceptor = FilesInterceptor(FILE_UPLOAD_FIELD, undefined, {
+  storage: memoryStorage(),
+  limits: { fileSize: MAX_FILE_SIZE_BYTES },
+  fileFilter: (req, file, cb) => {
+    if (ALLOWED_MIME_TYPES.includes(file.mimetype)) {
+      cb(null, true);
+      return;
+    }
+    cb(
+      new BadRequestException(
+        `Unsupported MIME type: ${file.mimetype}. Allowed: ${ALLOWED_MIME_TYPES.join(', ')}`,
+      ),
+      false,
+    );
+  },
+});
 
 @ApiTags('files')
 @Controller('files')
@@ -47,32 +78,49 @@ export class FileController {
 
   @Version('1')
   @Post()
-  @ApiOperation({ summary: 'Create a new file record.' })
+  @UseInterceptors(uploadInterceptor)
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    summary: 'Upload one or more PDF files to a user-owned space.',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        spaceId: { type: 'string', format: 'uuid' },
+        [FILE_UPLOAD_FIELD]: {
+          type: 'array',
+          items: {
+            type: 'string',
+            format: 'binary',
+          },
+        },
+      },
+      required: ['spaceId', FILE_UPLOAD_FIELD],
+    },
+  })
   @ApiResponse({
     status: 201,
-    description: 'File created successfully.',
+    description: 'Files uploaded successfully.',
     type: FileResponseDto,
+    isArray: true,
   })
-  @ApiResponse({ status: 400, description: 'Invalid payload.' })
+  @ApiResponse({ status: 400, description: 'Invalid payload or files.' })
   @ApiResponse({ status: 401, description: 'Unauthorized.' })
-  async create(
-    @Body() dto: CreateFileDto,
+  async upload(
     @Req() request: RequestWithUser,
-  ): Promise<FileResponseDto> {
-    const userId = request.user?.userId;
-    if (!userId) {
-      throw new UnauthorizedException(
-        'Authenticated user context is required to create a file.',
-      );
-    }
+    @Body() body: UploadFilesDto,
+    @UploadedFiles() files: Express.Multer.File[],
+  ): Promise<FileResponseDto[]> {
+    const userId = this.extractUserId(request);
 
-    return this.fileService.create(userId, dto);
+    return this.fileService.uploadFiles(userId, body.spaceId, files);
   }
 
   @Version('1')
   @Get()
   @ApiOperation({
-    summary: 'Retrieve all files owned by the authenticated user.',
+    summary: 'List files owned by the authenticated user.',
   })
   @ApiResponse({
     status: 200,
@@ -81,94 +129,101 @@ export class FileController {
     isArray: true,
   })
   @ApiResponse({ status: 401, description: 'Unauthorized.' })
-  async findAll(
+  async list(
     @Query() query: ListFilesQueryDto,
     @Req() request: RequestWithUser,
   ): Promise<FileResponseDto[]> {
-    const userId = request.user?.userId;
-    if (!userId) {
-      throw new UnauthorizedException(
-        'Authenticated user context is required to list files.',
-      );
-    }
-
-    return this.fileService.findAll(userId, query);
+    const userId = this.extractUserId(request);
+    return this.fileService.listFiles(userId, query);
   }
 
   @Version('1')
   @Get(':id')
   @UseGuards(FileOwnerGuard)
-  @ApiOperation({ summary: 'Retrieve metadata for a specific file.' })
-  @ApiResponse({
-    status: 200,
-    description: 'File retrieved successfully.',
-    type: FileResponseDto,
-  })
+  @ApiOperation({ summary: 'Download a file from S3.' })
+  @ApiResponse({ status: 200, description: 'File downloaded successfully.' })
   @ApiResponse({ status: 401, description: 'Unauthorized.' })
   @ApiResponse({ status: 403, description: 'Forbidden.' })
   @ApiResponse({ status: 404, description: 'File not found.' })
-  async findOne(
+  async download(
     @Param('id') fileId: string,
     @Req() request: RequestWithUser,
-  ): Promise<FileResponseDto> {
-    const userId = request.user?.userId;
-    if (!userId) {
-      throw new UnauthorizedException(
-        'Authenticated user context is required to retrieve a file.',
-      );
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<StreamableFile> {
+    const userId = this.extractUserId(request);
+    const result = await this.fileService.downloadFile(fileId, userId);
+
+    response.setHeader(
+      'Content-Type',
+      result.contentType ?? 'application/octet-stream',
+    );
+    response.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${encodeURIComponent(result.filename)}"`,
+    );
+    if (result.contentLength) {
+      response.setHeader('Content-Length', result.contentLength.toString());
     }
 
-    return this.fileService.findOne(fileId, userId);
+    return new StreamableFile(result.stream);
   }
 
   @Version('1')
-  @Patch(':id')
+  @Get(':id/progress')
   @UseGuards(FileOwnerGuard)
-  @ApiOperation({ summary: 'Update metadata for an existing file.' })
+  @ApiOperation({ summary: 'Retrieve the current upload progress for a file.' })
   @ApiResponse({
     status: 200,
-    description: 'File updated successfully.',
+    description: 'Upload progress retrieved successfully.',
+    type: FileProgressResponseDto,
+  })
+  async progress(
+    @Param('id') fileId: string,
+    @Req() request: RequestWithUser,
+  ): Promise<FileProgressResponseDto> {
+    const userId = this.extractUserId(request);
+    return this.fileService.getUploadProgress(fileId, userId);
+  }
+
+  @Version('1')
+  @Patch(':id/status')
+  @UseGuards(FileOwnerGuard)
+  @ApiOperation({ summary: 'Refresh OpenAI ingestion status for a file.' })
+  @ApiResponse({
+    status: 200,
+    description: 'File status refreshed successfully.',
     type: FileResponseDto,
   })
-  @ApiResponse({ status: 400, description: 'Invalid payload.' })
-  @ApiResponse({ status: 401, description: 'Unauthorized.' })
-  @ApiResponse({ status: 403, description: 'Forbidden.' })
-  @ApiResponse({ status: 404, description: 'File not found.' })
-  async update(
+  async refreshStatus(
     @Param('id') fileId: string,
-    @Body() dto: UpdateFileDto,
     @Req() request: RequestWithUser,
   ): Promise<FileResponseDto> {
-    const userId = request.user?.userId;
-    if (!userId) {
-      throw new UnauthorizedException(
-        'Authenticated user context is required to update a file.',
-      );
-    }
-
-    return this.fileService.update(fileId, userId, dto);
+    const userId = this.extractUserId(request);
+    return this.fileService.refreshStatus(fileId, userId);
   }
 
   @Version('1')
   @Delete(':id')
   @UseGuards(FileOwnerGuard)
-  @ApiOperation({ summary: 'Delete a file record permanently.' })
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Delete a file from storage and OpenAI.' })
   @ApiResponse({ status: 204, description: 'File deleted successfully.' })
   @ApiResponse({ status: 401, description: 'Unauthorized.' })
   @ApiResponse({ status: 403, description: 'Forbidden.' })
   @ApiResponse({ status: 404, description: 'File not found.' })
-  @HttpCode(HttpStatus.NO_CONTENT)
   async remove(
     @Param('id') fileId: string,
     @Req() request: RequestWithUser,
   ): Promise<void> {
+    const userId = this.extractUserId(request);
+    await this.fileService.remove(fileId, userId);
+  }
+
+  private extractUserId(request: RequestWithUser): string {
     const userId = request.user?.userId;
     if (!userId) {
-      throw new UnauthorizedException(
-        'Authenticated user context is required to delete a file.',
-      );
+      throw new UnauthorizedException('User context is required.');
     }
-
-    await this.fileService.remove(fileId, userId);
+    return userId;
   }
 }
