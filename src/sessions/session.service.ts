@@ -18,9 +18,6 @@ export class SessionService {
       params;
 
     const refreshTokenHash = await bcrypt.hash(refreshToken, 12);
-    // Refresh tokens are hashed before persisting so a database leak does not
-    // grant long-lived credentials to an attacker even if they exfiltrate the
-    // sessions table.
     return this.prisma.session.create({
       data: {
         id,
@@ -92,9 +89,6 @@ export class SessionService {
         session.previousTokenHash,
       );
       if (matchesPrevious) {
-        // When a rotated token is re-used, revoke every session for the user to
-        // contain the blast radius and force full re-authentication across
-        // devices.
         await this.revokeAllSessionsForUser(session.userId);
         throw new UnauthorizedException(
           'Refresh token re-use detected; all sessions have been revoked.',
@@ -108,8 +102,6 @@ export class SessionService {
   async assertSessionIsActive(
     params: AssertSessionActiveParams,
   ): Promise<Session> {
-    // Access-token guarded requests call this to hard-stop any revoked or expired
-    // session so that previously issued JWTs do not remain usable after logout.
     const { sessionId, userId } = params;
     const session = await this.prisma.session.findUnique({
       where: { id: sessionId },

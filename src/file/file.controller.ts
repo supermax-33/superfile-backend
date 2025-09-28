@@ -21,14 +21,6 @@ import {
   StreamableFile,
 } from '@nestjs/common';
 import { Response } from 'express';
-import {
-  ApiBearerAuth,
-  ApiBody,
-  ApiConsumes,
-  ApiOperation,
-  ApiResponse,
-  ApiTags,
-} from '@nestjs/swagger';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -43,8 +35,8 @@ import {
   FILE_UPLOAD_FIELD,
   MAX_FILE_SIZE_BYTES,
 } from './file.constants';
-import { FileProgressResponseDto } from './dto/file-progress-response.dto';
 import { RequestWithUser } from 'types';
+import { FileProgressResponseDto } from './dto/file-progress-response.dto';
 
 const uploadInterceptor = FilesInterceptor(FILE_UPLOAD_FIELD, undefined, {
   storage: memoryStorage(),
@@ -63,45 +55,15 @@ const uploadInterceptor = FilesInterceptor(FILE_UPLOAD_FIELD, undefined, {
   },
 });
 
-@ApiTags('files')
 @Controller('files')
 @UseFilters(JwtExceptionFilter)
 @UseGuards(JwtAuthGuard)
-@ApiBearerAuth('access-token')
 export class FileController {
   constructor(private readonly fileService: FileService) {}
 
   @Version('1')
   @Post()
   @UseInterceptors(uploadInterceptor)
-  @ApiConsumes('multipart/form-data')
-  @ApiOperation({
-    summary: 'Upload one or more PDF files to a user-owned space.',
-  })
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        spaceId: { type: 'string', format: 'uuid' },
-        [FILE_UPLOAD_FIELD]: {
-          type: 'array',
-          items: {
-            type: 'string',
-            format: 'binary',
-          },
-        },
-      },
-      required: ['spaceId', FILE_UPLOAD_FIELD],
-    },
-  })
-  @ApiResponse({
-    status: 201,
-    description: 'Files uploaded successfully.',
-    type: FileResponseDto,
-    isArray: true,
-  })
-  @ApiResponse({ status: 400, description: 'Invalid payload or files.' })
-  @ApiResponse({ status: 401, description: 'Unauthorized.' })
   async upload(
     @Req() request: RequestWithUser,
     @Body() body: UploadFilesDto,
@@ -114,16 +76,6 @@ export class FileController {
 
   @Version('1')
   @Get()
-  @ApiOperation({
-    summary: 'List files owned by the authenticated user.',
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'List of files retrieved successfully.',
-    type: FileResponseDto,
-    isArray: true,
-  })
-  @ApiResponse({ status: 401, description: 'Unauthorized.' })
   async list(
     @Query() query: ListFilesQueryDto,
     @Req() request: RequestWithUser,
@@ -135,11 +87,6 @@ export class FileController {
   @Version('1')
   @Get(':id')
   @UseGuards(FileOwnerGuard)
-  @ApiOperation({ summary: 'Download a file from S3.' })
-  @ApiResponse({ status: 200, description: 'File downloaded successfully.' })
-  @ApiResponse({ status: 401, description: 'Unauthorized.' })
-  @ApiResponse({ status: 403, description: 'Forbidden.' })
-  @ApiResponse({ status: 404, description: 'File not found.' })
   async download(
     @Param('id') fileId: string,
     @Req() request: RequestWithUser,
@@ -166,12 +113,6 @@ export class FileController {
   @Version('1')
   @Get(':id/progress')
   @UseGuards(FileOwnerGuard)
-  @ApiOperation({ summary: 'Retrieve the current upload progress for a file.' })
-  @ApiResponse({
-    status: 200,
-    description: 'Upload progress retrieved successfully.',
-    type: FileProgressResponseDto,
-  })
   async progress(
     @Param('id') fileId: string,
     @Req() request: RequestWithUser,
@@ -183,12 +124,6 @@ export class FileController {
   @Version('1')
   @Patch(':id/status')
   @UseGuards(FileOwnerGuard)
-  @ApiOperation({ summary: 'Refresh OpenAI ingestion status for a file.' })
-  @ApiResponse({
-    status: 200,
-    description: 'File status refreshed successfully.',
-    type: FileResponseDto,
-  })
   async refreshStatus(
     @Param('id') fileId: string,
     @Req() request: RequestWithUser,
@@ -201,11 +136,6 @@ export class FileController {
   @Delete(':id')
   @UseGuards(FileOwnerGuard)
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Delete a file from storage and OpenAI.' })
-  @ApiResponse({ status: 204, description: 'File deleted successfully.' })
-  @ApiResponse({ status: 401, description: 'Unauthorized.' })
-  @ApiResponse({ status: 403, description: 'Forbidden.' })
-  @ApiResponse({ status: 404, description: 'File not found.' })
   async remove(
     @Param('id') fileId: string,
     @Req() request: RequestWithUser,
