@@ -10,6 +10,7 @@ import { AuthService } from './auth.service';
 import { JwtExceptionFilter } from './filters/jwt-exception.filter';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { GoogleStrategy } from './strategies/google.strategy';
+import { JWT_ACCESS_TOKEN_TTL } from 'config';
 
 @Module({
   imports: [
@@ -22,9 +23,9 @@ import { GoogleStrategy } from './strategies/google.strategy';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
-        secret: config.get<string>('JWT_SECRET', 'super-secret-key'),
+        secret: config.get<string>('JWT_SECRET'),
         signOptions: {
-          expiresIn: config.get<string>('JWT_ACCESS_TOKEN_TTL', '15m'),
+          expiresIn: JWT_ACCESS_TOKEN_TTL,
         },
       }),
     }),

@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Injectable,
   InternalServerErrorException,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -35,6 +36,7 @@ import {
 @Injectable()
 export class AuthService {
   private readonly googleClient: OAuth2Client;
+  private readonly logger = new Logger(AuthService.name);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -71,7 +73,9 @@ export class AuthService {
 
       await this.mailService.sendVerificationEmail(email, code);
     } catch (err) {
-      console.error('Error sending verification OTP:', err);
+      this.logger.error(
+        `Failed to send verification email to ${email}: ${err.message}`,
+      );
       throw new InternalServerErrorException(
         'Failed to send verification email',
       );
