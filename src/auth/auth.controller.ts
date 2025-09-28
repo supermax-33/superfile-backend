@@ -23,6 +23,7 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { GoogleOAuthGuard } from './guards/google-oauth.guard';
 import { GoogleTokenDto } from './dto/google-token.dto';
 import { VerifyResetCodeDto } from './dto/verify-reset-code.dto';
+import { ResendOtpDto } from './dto/resend-otp.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -43,6 +44,12 @@ export class AuthController {
   async signup(@Body() createUserDto: CreateUserDto) {
     await this.authService.signup(createUserDto);
     return { message: 'Signup successful. Please verify your email.' };
+  }
+
+  @Version('1')
+  @Post('resend-otp')
+  async resendOtp(@Body() resendOtpDto: ResendOtpDto) {
+    return this.authService.resendOtp(resendOtpDto.email);
   }
 
   @Version('1')

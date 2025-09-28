@@ -5,6 +5,7 @@ import {
   Injectable,
   InternalServerErrorException,
   Logger,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -168,6 +169,19 @@ export class AuthService {
       }
       throw err;
     }
+  }
+
+  async resendOtp(email: string): Promise<{ message: string }> {
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    await this.sendVerificationOtp(user.id, user.email);
+    return { message: 'Verification code sent successfully' };
   }
 
   async verifyEmail(dto: VerifyEmailDto): Promise<{ message: string }> {
