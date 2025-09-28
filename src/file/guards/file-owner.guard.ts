@@ -29,7 +29,7 @@ export class FileOwnerGuard implements CanActivate {
       );
     }
 
-    const ownerId = await this.fileService.getOwnerId(fileId);
+    const ownerId = await this.fileService.getFileOwnerId(fileId);
     if (!ownerId) {
       throw new NotFoundException('File not found.');
     }

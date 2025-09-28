@@ -16,6 +16,7 @@ import {
   UnauthorizedException,
   Version,
   UseFilters,
+  Get,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Express } from 'express';
@@ -67,6 +68,14 @@ export class SpaceController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(@Param('id') spaceId: string): Promise<void> {
     await this.spaceService.delete(spaceId);
+  }
+
+  @Version('1')
+  @UseFilters(JwtExceptionFilter)
+  @UseGuards(JwtAuthGuard)
+  @Get(':id')
+  async findOne(@Param('id') spaceId: string): Promise<SpaceResponseDto> {
+    return this.spaceService.findOne(spaceId);
   }
 
   @Version('1')

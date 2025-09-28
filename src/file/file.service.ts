@@ -5,8 +5,6 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
-import type { Express } from 'express';
-import { randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { File, FileStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -15,12 +13,13 @@ import { ListFilesQueryDto } from './dto/list-files-query.dto';
 import { S3FileStorageService } from './s3-file-storage.service';
 import { FileProgressService } from './file-progress.service';
 import { OpenAiVectorStoreService } from './openai-vector-store.service';
+import { FileProgressResponseDto } from './dto/file-progress-response.dto';
 import {
   ALLOWED_MIME_TYPES,
   MAX_FILE_SIZE_BYTES,
   VECTOR_STORE_NAME_PREFIX,
-} from './file.constants';
-import { FileProgressResponseDto } from './dto/file-progress-response.dto';
+} from 'config';
+import { buildS3Key, formatError, normalizeName } from 'utils/helpers';
 
 @Injectable()
 export class FileService {
@@ -60,13 +59,13 @@ export class FileService {
     for (const file of files) {
       this.assertFileValid(file);
 
-      const s3Key = this.buildS3Key(spaceId, file.originalname);
+      const s3Key = buildS3Key(spaceId, file.originalname);
 
       const record = await this.prisma.file.create({
         data: {
           spaceId,
           userId,
-          filename: this.normalizeFileName(file.originalname),
+          filename: normalizeName(file.originalname),
           mimetype: file.mimetype,
           size: BigInt(file.size),
           status: FileStatus.PROCESSING,
@@ -100,7 +99,7 @@ export class FileService {
           where: { id: record.id },
           data: {
             status: FileStatus.FAILED,
-            error: this.formatError('Failed to upload file to storage', error),
+            error: formatError('Failed to upload file to storage', error),
           },
         });
 
@@ -111,7 +110,7 @@ export class FileService {
       try {
         const uploadResult = await this.openAi.uploadFile(vectorStoreId, {
           buffer: this.ensureBuffer(file),
-          filename: this.normalizeFileName(file.originalname),
+          filename: normalizeName(file.originalname),
           mimetype: file.mimetype,
         });
 
@@ -133,7 +132,7 @@ export class FileService {
           where: { id: record.id },
           data: {
             status: FileStatus.FAILED,
-            error: this.formatError(
+            error: formatError(
               'Failed to ingest file with OpenAI File Search',
               error,
             ),
@@ -290,7 +289,7 @@ export class FileService {
       await this.storage.delete(file.s3Key);
     } catch (error) {
       throw new InternalServerErrorException(
-        this.formatError('Failed to delete file from storage', error),
+        formatError('Failed to delete file from storage', error),
       );
     }
 
@@ -299,10 +298,7 @@ export class FileService {
         await this.openAi.deleteFile(file.vectorStoreId, file.openAiFileId);
       } catch (error) {
         throw new InternalServerErrorException(
-          this.formatError(
-            'Failed to delete file from OpenAI vector store',
-            error,
-          ),
+          formatError('Failed to delete file from OpenAI vector store', error),
         );
       }
     }
@@ -310,31 +306,13 @@ export class FileService {
     await this.prisma.file.delete({ where: { id: fileId } });
   }
 
-  async getOwnerId(fileId: string): Promise<string | null> {
+  async getFileOwnerId(fileId: string): Promise<string | null> {
     const file = await this.prisma.file.findUnique({
       where: { id: fileId },
       select: { space: { select: { ownerId: true } } },
     });
 
     return file?.space.ownerId ?? null;
-  }
-
-  private async ensureUserOwnsFile(
-    fileId: string,
-    userId: string,
-  ): Promise<void> {
-    const file = await this.prisma.file.findUnique({
-      where: { id: fileId },
-      select: { space: { select: { ownerId: true } } },
-    });
-
-    if (!file) {
-      throw new NotFoundException('File not found.');
-    }
-
-    if (file.space.ownerId !== userId) {
-      throw new ForbiddenException('You do not have access to this file.');
-    }
   }
 
   private toFileResponse(file: File): FileResponseDto {
@@ -371,7 +349,7 @@ export class FileService {
   private assertFileValid(file: Express.Multer.File): void {
     if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {
       throw new BadRequestException(
-        `Unsupported file type for ${file.originalname}. Allowed types: ${ALLOWED_MIME_TYPES.join(
+        `Unsupported file type for ${file.originalname}. Allowed file types: ${ALLOWED_MIME_TYPES.join(
           ', ',
         )}`,
       );
@@ -382,27 +360,6 @@ export class FileService {
         `${file.originalname} exceeds the maximum size of ${MAX_FILE_SIZE_BYTES} bytes.`,
       );
     }
-  }
-
-  private buildS3Key(spaceId: string, originalName: string): string {
-    const safeName = this.sanitizeFilename(originalName);
-    const unique = randomUUID();
-    return `spaces/${spaceId}/files/${unique}-${safeName}`;
-  }
-
-  private sanitizeFilename(filename: string): string {
-    return (
-      filename
-        .normalize('NFKD')
-        .replace(/[^a-zA-Z0-9\-_.]/g, '_')
-        .replace(/_+/g, '_')
-        .replace(/^_+|_+$/g, '')
-        .slice(0, 255) || 'file'
-    );
-  }
-
-  private normalizeFileName(filename: string): string {
-    return filename.trim();
   }
 
   private asReadable(file: Express.Multer.File): Readable {
@@ -425,17 +382,6 @@ export class FileService {
     throw new InternalServerErrorException(
       'File buffer is required for OpenAI ingestion.',
     );
-  }
-
-  private formatError(prefix: string, error: unknown): string {
-    const message =
-      error instanceof Error
-        ? error.message
-        : typeof error === 'string'
-          ? error
-          : 'Unknown error';
-
-    return `${prefix}: ${message}`;
   }
 
   private async resolveVectorStoreId(userId: string): Promise<string> {

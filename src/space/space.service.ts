@@ -12,6 +12,7 @@ import {
   SpaceResponseDto,
 } from './dto/space-response.dto';
 import { UpdateSpaceDto } from './dto/update-space.dto';
+import { normalizeName, normalizeSlug } from 'utils/helpers';
 
 type SpaceWithLogoMetadata = Space & {
   logo: Pick<SpaceLogo, 'contentType' | 'hash'> | null;
@@ -21,14 +22,31 @@ type SpaceWithLogoMetadata = Space & {
 export class SpaceService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private toSpaceResponse(space: SpaceWithLogoMetadata): SpaceResponseDto {
+    return new SpaceResponseDto({
+      id: space.id,
+      slug: space.slug,
+      name: space.name,
+      ownerId: space.ownerId,
+      createdAt: space.createdAt,
+      updatedAt: space.updatedAt,
+      logo: space.logo
+        ? new SpaceLogoResponseDto({
+            contentType: space.logo.contentType ?? null,
+            hash: space.logo.hash ?? null,
+          })
+        : null,
+    });
+  }
+
   async create(
     ownerId: string,
     dto: CreateSpaceDto,
   ): Promise<SpaceResponseDto> {
     const space = await this.prisma.space.create({
       data: {
-        name: this.normalizeName(dto.name),
-        slug: this.normalizeSlug(dto.slug),
+        name: normalizeName(dto.name),
+        slug: normalizeSlug(dto.slug),
         ownerId,
       },
       include: { logo: { select: { contentType: true, hash: true } } },
@@ -44,7 +62,7 @@ export class SpaceService {
     const data: Partial<Pick<Space, 'name' | 'slug'>> = {};
 
     if (dto.name !== undefined) {
-      const normalizedName = this.normalizeName(dto.name);
+      const normalizedName = normalizeName(dto.name);
       if (!normalizedName) {
         throw new BadRequestException('Space name cannot be empty.');
       }
@@ -52,7 +70,7 @@ export class SpaceService {
     }
 
     if (dto.slug !== undefined) {
-      data.slug = this.normalizeSlug(dto.slug);
+      data.slug = normalizeSlug(dto.slug);
     }
 
     if (Object.keys(data).length === 0) {
@@ -107,37 +125,25 @@ export class SpaceService {
     return this.toSpaceResponse(space);
   }
 
-  async getOwnerId(spaceId: string): Promise<string | null> {
+  async findOne(spaceId: string): Promise<SpaceResponseDto> {
+    const space = await this.prisma.space.findUnique({
+      where: { id: spaceId },
+      include: { logo: { select: { contentType: true, hash: true } } },
+    });
+
+    if (!space) {
+      throw new NotFoundException('Space not found.');
+    }
+
+    return this.toSpaceResponse(space);
+  }
+
+  async getSpaceOwnerId(spaceId: string): Promise<string> {
     const space = await this.prisma.space.findUnique({
       where: { id: spaceId },
       select: { ownerId: true },
     });
 
-    return space?.ownerId ?? null;
-  }
-
-  private toSpaceResponse(space: SpaceWithLogoMetadata): SpaceResponseDto {
-    return new SpaceResponseDto({
-      id: space.id,
-      slug: space.slug,
-      name: space.name,
-      ownerId: space.ownerId,
-      createdAt: space.createdAt,
-      updatedAt: space.updatedAt,
-      logo: space.logo
-        ? new SpaceLogoResponseDto({
-            contentType: space.logo.contentType ?? null,
-            hash: space.logo.hash ?? null,
-          })
-        : null,
-    });
-  }
-
-  private normalizeSlug(slug: string): string {
-    return slug.trim().toLowerCase();
-  }
-
-  private normalizeName(name: string): string {
-    return name.trim();
+    return space?.ownerId;
   }
 }

@@ -26,13 +26,10 @@ import { OPENAI_CLIENT_TOKEN, S3_CLIENT_TOKEN } from './file.tokens';
       useFactory: (config: ConfigService) => {
         const region = config.get<string>('AWS_REGION');
 
-        if (!region) {
+        if (!region)
           throw new Error('AWS_S3_REGION or AWS_REGION must be configured');
-        }
 
-        return new S3Client({
-          region,
-        });
+        return new S3Client({ region });
       },
     },
     {

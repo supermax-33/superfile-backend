@@ -30,13 +30,13 @@ import { ListFilesQueryDto } from './dto/list-files-query.dto';
 import { FileOwnerGuard } from './guards/file-owner.guard';
 import { FileService } from './file.service';
 import { UploadFilesDto } from './dto/upload-files.dto';
+import { RequestWithUser } from 'types';
+import { FileProgressResponseDto } from './dto/file-progress-response.dto';
 import {
   ALLOWED_MIME_TYPES,
   FILE_UPLOAD_FIELD,
   MAX_FILE_SIZE_BYTES,
-} from './file.constants';
-import { RequestWithUser } from 'types';
-import { FileProgressResponseDto } from './dto/file-progress-response.dto';
+} from 'config';
 
 const uploadInterceptor = FilesInterceptor(FILE_UPLOAD_FIELD, undefined, {
   storage: memoryStorage(),
@@ -48,7 +48,7 @@ const uploadInterceptor = FilesInterceptor(FILE_UPLOAD_FIELD, undefined, {
     }
     cb(
       new BadRequestException(
-        `Unsupported MIME type: ${file.mimetype}. Allowed: ${ALLOWED_MIME_TYPES.join(', ')}`,
+        `Unsupported file type: ${file.mimetype}. Allowed file types: ${ALLOWED_MIME_TYPES.join(', ')}`,
       ),
       false,
     );
@@ -60,6 +60,14 @@ const uploadInterceptor = FilesInterceptor(FILE_UPLOAD_FIELD, undefined, {
 @UseGuards(JwtAuthGuard)
 export class FileController {
   constructor(private readonly fileService: FileService) {}
+
+  private extractUserId(request: RequestWithUser): string {
+    const userId = request.user?.userId;
+    if (!userId) {
+      throw new UnauthorizedException('User context is required.');
+    }
+    return userId;
+  }
 
   @Version('1')
   @Post()
@@ -142,13 +150,5 @@ export class FileController {
   ): Promise<void> {
     const userId = this.extractUserId(request);
     await this.fileService.remove(fileId, userId);
-  }
-
-  private extractUserId(request: RequestWithUser): string {
-    const userId = request.user?.userId;
-    if (!userId) {
-      throw new UnauthorizedException('User context is required.');
-    }
-    return userId;
   }
 }

@@ -29,7 +29,7 @@ export class SpaceOwnerGuard implements CanActivate {
       );
     }
 
-    const ownerId = await this.spaceService.getOwnerId(spaceId);
+    const ownerId = await this.spaceService.getSpaceOwnerId(spaceId);
     if (!ownerId) {
       throw new NotFoundException('Space not found.');
     }
