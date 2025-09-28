@@ -3,14 +3,14 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  InternalServerErrorException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { AuthProvider, Session, User } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
-import { OAuth2Client } from 'google-auth-library';
-import * as ms from 'ms';
+import { LoginTicket, OAuth2Client } from 'google-auth-library';
 import { randomUUID } from 'crypto';
 import { MailService } from 'src/mail/mail.service';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -23,15 +23,17 @@ import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import { OAuthProfile, SessionMetadata } from 'types';
+import { generateOtp } from 'utils/helpers';
+import {
+  AUTH_EMAIL_OTP_LENGTH,
+  JWT_ACCESS_TOKEN_TTL,
+  JWT_REFRESH_TOKEN_TTL,
+  OTP_EXPIRY_MS,
+  REFRESH_TOKEN_EXPIRY_MS,
+} from 'config';
 
 @Injectable()
 export class AuthService {
-  private readonly otpLength: number;
-  private readonly otpExpiryMs: number;
-  private readonly accessTokenTtl: string;
-  private readonly refreshTokenTtl: string;
-  private readonly accessTokenExpiryMs: number;
-  private readonly refreshTokenExpiryMs: number;
   private readonly googleClient: OAuth2Client;
 
   constructor(
@@ -41,72 +43,39 @@ export class AuthService {
     private readonly configService: ConfigService,
     private readonly sessionService: SessionService,
   ) {
-    this.otpLength = Number(
-      this.configService.get('AUTH_EMAIL_OTP_LENGTH') ?? 6,
-    );
-    this.otpExpiryMs = this.parseDuration(
-      this.configService.get('AUTH_EMAIL_OTP_TTL') ?? '10m',
-      10 * 60 * 1000,
-    );
-    this.accessTokenTtl = this.configService.get<string>(
-      'JWT_ACCESS_TOKEN_TTL',
-      '15m',
-    );
-    this.refreshTokenTtl = this.configService.get<string>(
-      'JWT_REFRESH_TOKEN_TTL',
-      '30d',
-    );
-    this.accessTokenExpiryMs = this.parseDuration(
-      this.accessTokenTtl,
-      15 * 60 * 1000,
-    );
-    this.refreshTokenExpiryMs = this.parseDuration(
-      this.refreshTokenTtl,
-      30 * 24 * 60 * 60 * 1000,
-    );
-
     const googleClientId = this.configService.get<string>('GOOGLE_CLIENT_ID');
     this.googleClient = new OAuth2Client(googleClientId);
-  }
-
-  private parseDuration(value: string | number, fallback: number): number {
-    if (typeof value === 'number' && !Number.isNaN(value)) {
-      return value;
-    }
-    const parsed = typeof value === 'string' ? ms(value) : undefined;
-    return typeof parsed === 'number' ? parsed : fallback;
-  }
-
-  private generateOtp(): string {
-    const max = 10 ** this.otpLength;
-    const code = Math.floor(Math.random() * max)
-      .toString()
-      .padStart(this.otpLength, '0');
-    return code;
   }
 
   private async sendVerificationOtp(
     userId: string,
     email: string,
   ): Promise<void> {
-    const code = this.generateOtp();
-    const expiresAt = new Date(Date.now() + this.otpExpiryMs);
+    const code = generateOtp(AUTH_EMAIL_OTP_LENGTH);
+    const expiresAt = new Date(Date.now() + OTP_EXPIRY_MS);
 
-    // Invalidate previous unused tokens so only the latest OTP remains valid.
-    await this.prisma.verificationToken.updateMany({
-      where: { userId, usedAt: null },
-      data: { usedAt: new Date() },
-    });
+    try {
+      // Invalidate previous unused tokens so only the latest OTP remains valid.
+      await this.prisma.verificationToken.updateMany({
+        where: { userId, usedAt: null },
+        data: { usedAt: new Date() },
+      });
 
-    await this.prisma.verificationToken.create({
-      data: {
-        userId,
-        verificationToken: code,
-        expiresAt,
-      },
-    });
+      await this.prisma.verificationToken.create({
+        data: {
+          userId,
+          verificationToken: code,
+          expiresAt,
+        },
+      });
 
-    await this.mailService.sendVerificationEmail(email, code);
+      await this.mailService.sendVerificationEmail(email, code);
+    } catch (err) {
+      console.error('Error sending verification OTP:', err);
+      throw new InternalServerErrorException(
+        'Failed to send verification email',
+      );
+    }
   }
 
   private async issueTokens(
@@ -128,16 +97,16 @@ export class AuthService {
     };
 
     const [accessToken, refreshToken] = await Promise.all([
-      this.jwtService.signAsync(payload, { expiresIn: this.accessTokenTtl }),
+      this.jwtService.signAsync(payload, { expiresIn: JWT_ACCESS_TOKEN_TTL }),
       this.jwtService.signAsync(
         { ...payload, type: 'refresh' },
         {
-          expiresIn: this.refreshTokenTtl,
+          expiresIn: JWT_REFRESH_TOKEN_TTL,
         },
       ),
     ]);
 
-    const expiresAt = new Date(Date.now() + this.refreshTokenExpiryMs);
+    const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS);
 
     if (options.session) {
       await this.sessionService.rotateSessionToken({
@@ -198,10 +167,6 @@ export class AuthService {
   }
 
   async verifyEmail(dto: VerifyEmailDto): Promise<{ message: string }> {
-    if (!dto || !dto.code) {
-      throw new BadRequestException('Code is required');
-    }
-
     const verificationToken = await this.prisma.verificationToken.findFirst({
       where: {
         verificationToken: dto.code,
@@ -212,7 +177,7 @@ export class AuthService {
     });
 
     if (!verificationToken) {
-      throw new BadRequestException('Invalid, expired, or already used code');
+      throw new BadRequestException('Invalid code! Please try again.');
     }
 
     await this.prisma.user.update({
@@ -220,6 +185,7 @@ export class AuthService {
       data: { emailVerified: true },
     });
 
+    // Mark the token as used
     await this.prisma.verificationToken.update({
       where: { id: verificationToken.id },
       data: { usedAt: new Date() },
@@ -238,7 +204,9 @@ export class AuthService {
     }
 
     if (!user.emailVerified) {
-      throw new ForbiddenException('Email not verified');
+      throw new ForbiddenException(
+        'Email not verified. Please verify your email.',
+      );
     }
 
     const passwordValid = await bcrypt.compare(dto.password, user.passwordHash);
@@ -250,10 +218,6 @@ export class AuthService {
   }
 
   async refreshToken(dto: RefreshTokenDto, metadata: SessionMetadata = {}) {
-    if (!dto.refreshToken) {
-      throw new BadRequestException('Refresh token is required');
-    }
-
     let decoded: { sub: string; email: string; sid?: string; type?: string };
     try {
       decoded = await this.jwtService.verifyAsync(dto.refreshToken);
@@ -308,7 +272,7 @@ export class AuthService {
       user.passwordHash,
     );
     if (!isPasswordValid) {
-      throw new UnauthorizedException('Current password is incorrect');
+      throw new UnauthorizedException('Incorrect current password');
     }
 
     if (dto.currentPassword === dto.newPassword) {
@@ -337,12 +301,12 @@ export class AuthService {
     if (!user || user.provider !== AuthProvider.LOCAL) {
       return {
         message:
-          'If your email is registered, you will receive a password reset code.',
+          'You will receive a password reset code if your email is registered.',
       };
     }
 
-    const code = this.generateOtp();
-    const expiresAt = new Date(Date.now() + this.otpExpiryMs);
+    const code = generateOtp(AUTH_EMAIL_OTP_LENGTH);
+    const expiresAt = new Date(Date.now() + OTP_EXPIRY_MS);
 
     await this.prisma.passwordResetToken.create({
       data: {
@@ -356,7 +320,7 @@ export class AuthService {
 
     return {
       message:
-        'If your email is registered, you will receive a password reset code.',
+        'You will receive a password reset code if your email is registered.',
     };
   }
 
@@ -398,10 +362,6 @@ export class AuthService {
   }
 
   async resetPassword(dto: ResetPasswordDto): Promise<{ message: string }> {
-    if (!dto || !dto.token) {
-      throw new BadRequestException('Access Token is required');
-    }
-
     let userPayload: { sub: string; email: string; provider: AuthProvider };
     try {
       userPayload = await this.jwtService.verifyAsync(dto.token);
@@ -490,7 +450,7 @@ export class AuthService {
       );
     }
 
-    let ticket;
+    let ticket: LoginTicket;
     try {
       ticket = await this.googleClient.verifyIdToken({
         idToken,
