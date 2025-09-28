@@ -12,6 +12,7 @@ import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { JwtExceptionFilter } from 'src/auth/filters/jwt-exception.filter';
 import { SessionService } from './session.service';
 import { SessionResponseDto } from './dto/session-response.dto';
+import { RequestWithUser } from 'types';
 @UseGuards(JwtAuthGuard)
 @UseFilters(JwtExceptionFilter)
 @Controller('sessions')
@@ -20,7 +21,9 @@ export class SessionController {
 
   @Version('1')
   @Get()
-  async listActiveSessions(@Request() req): Promise<SessionResponseDto[]> {
+  async listActiveSessions(
+    @Request() req: RequestWithUser,
+  ): Promise<SessionResponseDto[]> {
     const sessions = await this.sessionService.listActiveSessions(
       req.user.userId,
     );
@@ -46,7 +49,7 @@ export class SessionController {
 
   @Version('1')
   @Delete()
-  async invalidateAllSessions(@Request() req) {
+  async invalidateAllSessions(@Request() req: RequestWithUser) {
     await this.sessionService.revokeAllSessionsForUser(req.user.userId);
     return { message: 'All sessions invalidated.' };
   }
