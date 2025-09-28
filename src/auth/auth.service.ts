@@ -175,23 +175,26 @@ export class AuthService {
       if (existingUser.emailVerified) {
         throw new ConflictException('Email already exists');
       }
-
-      await this.sendVerificationOtp(existingUser.id, existingUser.email);
-      return { message: 'Signup successful, verification code sent.' };
     }
 
     const passwordHash = await bcrypt.hash(dto.password, 10);
-    const user = await this.prisma.user.create({
-      data: {
-        email: dto.email,
-        passwordHash,
-        provider: AuthProvider.LOCAL,
-        emailVerified: false,
-      },
-    });
-
-    await this.sendVerificationOtp(user.id, user.email);
-    return { message: 'Signup successful, verification code sent.' };
+    try {
+      const user = await this.prisma.user.create({
+        data: {
+          email: dto.email,
+          passwordHash,
+          provider: AuthProvider.LOCAL,
+          emailVerified: false,
+        },
+      });
+      await this.sendVerificationOtp(user.id, user.email);
+      return { message: 'Signup successful, verification code sent.' };
+    } catch (err) {
+      if (err.code === 'P2002' && err.meta?.target?.includes('email')) {
+        throw new ConflictException('Email already exists');
+      }
+      throw err;
+    }
   }
 
   async verifyEmail(dto: VerifyEmailDto): Promise<{ message: string }> {

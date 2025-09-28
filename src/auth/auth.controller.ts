@@ -8,7 +8,7 @@ import {
   UseGuards,
   Version,
 } from '@nestjs/common';
-import { Request as ExpressRequest } from 'express';
+import { Request } from 'express';
 import { Profile } from 'passport-google-oauth20';
 import { AuthService } from './auth.service';
 import { VerifyEmailDto } from './dto/verify-email.dto';
@@ -28,7 +28,7 @@ import { VerifyResetCodeDto } from './dto/verify-reset-code.dto';
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
-  private extractSessionMetadata(req: ExpressRequest) {
+  private extractSessionMetadata(req: Request) {
     const userAgentHeader = req.headers['user-agent'];
     return {
       ipAddress: req.ip,
@@ -53,51 +53,13 @@ export class AuthController {
 
   @Version('1')
   @Post('login')
-  async login(@Req() req: ExpressRequest, @Body() loginDto: LoginDto) {
+  async login(@Req() req: Request, @Body() loginDto: LoginDto) {
     return this.authService.login(loginDto, this.extractSessionMetadata(req));
   }
 
   @Version('1')
-  @Get('google')
-  @UseGuards(GoogleOAuthGuard)
-  async googleAuth() {
-    // Guard redirects the user to Google's consent screen.
-    return;
-  }
-
-  @Version('1')
-  @Get('google/callback')
-  @UseGuards(GoogleOAuthGuard)
-  async googleCallback(@Req() req: ExpressRequest & { user: Profile }) {
-    // req.user is hydrated by the Google strategy and contains the OAuth profile.
-    const profile = req.user;
-    return this.authService.handleGoogleOAuthLogin(
-      {
-        id: profile.id,
-        email: profile.emails?.[0]?.value,
-        displayName: profile.displayName,
-        emailVerified: profile.emails?.[0]?.verified,
-      },
-      this.extractSessionMetadata(req),
-    );
-  }
-
-  @Version('1')
-  @Post('google/token')
-  async googleTokenLogin(
-    @Req() req: ExpressRequest,
-    @Body() dto: GoogleTokenDto,
-  ) {
-    // Mobile clients exchange the Google ID token for first-party JWTs.
-    return this.authService.loginWithGoogleIdToken(
-      dto.idToken,
-      this.extractSessionMetadata(req),
-    );
-  }
-
-  @Version('1')
   @Post('refresh-token')
-  async refreshToken(@Req() req: ExpressRequest, @Body() dto: RefreshTokenDto) {
+  async refreshToken(@Req() req: Request, @Body() dto: RefreshTokenDto) {
     return this.authService.refreshToken(dto, this.extractSessionMetadata(req));
   }
 
@@ -106,7 +68,7 @@ export class AuthController {
   @Post('change-password')
   @UseFilters(JwtExceptionFilter)
   async changePassword(
-    @Req() req: ExpressRequest & { user: { userId: string } },
+    @Req() req: Request & { user: { userId: string } },
     @Body() changePasswordDto: ChangePasswordDto,
   ) {
     return this.authService.changePassword(req.user.userId, changePasswordDto);
@@ -128,5 +90,41 @@ export class AuthController {
   @Post('reset-password')
   async resetPassword(@Body() resetPasswordDto: ResetPasswordDto) {
     return this.authService.resetPassword(resetPasswordDto);
+  }
+
+  /***** Google OAuth Routes *****/
+  @Version('1')
+  @Get('google')
+  @UseGuards(GoogleOAuthGuard)
+  async googleAuth() {
+    // Guard redirects the user to Google's consent screen.
+    return;
+  }
+
+  @Version('1')
+  @Get('google/callback')
+  @UseGuards(GoogleOAuthGuard)
+  async googleCallback(@Req() req: Request & { user: Profile }) {
+    // req.user is hydrated by the Google strategy and contains the OAuth profile.
+    const profile = req.user;
+    return this.authService.handleGoogleOAuthLogin(
+      {
+        id: profile.id,
+        email: profile.emails?.[0]?.value,
+        displayName: profile.displayName,
+        emailVerified: profile.emails?.[0]?.verified,
+      },
+      this.extractSessionMetadata(req),
+    );
+  }
+
+  @Version('1')
+  @Post('google/token')
+  async googleTokenLogin(@Req() req: Request, @Body() dto: GoogleTokenDto) {
+    // Mobile clients exchange the Google ID token for first-party JWTs.
+    return this.authService.loginWithGoogleIdToken(
+      dto.idToken,
+      this.extractSessionMetadata(req),
+    );
   }
 }
