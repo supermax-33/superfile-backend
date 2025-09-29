@@ -40,6 +40,7 @@ model User {
   sessions           Session[]
   spaces             Space[]
   files              File[]
+  reminders          Reminder[]
 }
 
 model VerificationToken {
