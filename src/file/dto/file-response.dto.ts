@@ -16,6 +16,7 @@ export class FileResponseDto {
   vectorStoreId: string | null = null;
   openAiFileId: string | null = null;
   error: string | null = null;
+  note: string | null = null;
   uploadedAt!: Date;
   updatedAt!: Date;
 }

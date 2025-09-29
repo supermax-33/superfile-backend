@@ -114,6 +114,7 @@ model File {
   vectorStoreId String?    @db.VarChar(255)
   openAiFileId  String?    @db.VarChar(255)
   error         String?    @db.VarChar(2000)
+  note          String?    @db.VarChar(2000)
   uploadedAt    DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 

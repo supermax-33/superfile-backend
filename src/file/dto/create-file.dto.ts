@@ -50,4 +50,9 @@ export class CreateFileDto {
   @IsString()
   @MaxLength(2000)
   error?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  note?: string | null;
 }
