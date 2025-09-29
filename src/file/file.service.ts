@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Injectable,
   InternalServerErrorException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { Readable } from 'node:stream';
@@ -15,6 +16,14 @@ import { FileProgressService } from './file-progress.service';
 import { OpenAiVectorStoreService } from './openai-vector-store.service';
 import { FileProgressResponseDto } from './dto/file-progress-response.dto';
 import {
+  BatchDeleteFailureDto,
+  BatchDeleteFilesResponseDto,
+} from './dto/batch-delete-files.dto';
+import {
+  BatchDownloadFileItemDto,
+  BatchDownloadFilesResponseDto,
+} from './dto/batch-download-files.dto';
+import {
   ALLOWED_MIME_TYPES,
   MAX_FILE_SIZE_BYTES,
   VECTOR_STORE_NAME_PREFIX,
@@ -23,6 +32,8 @@ import { buildS3Key, formatError, normalizeName } from 'utils/helpers';
 
 @Injectable()
 export class FileService {
+  private readonly logger = new Logger(FileService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: S3FileStorageService,
@@ -306,6 +317,150 @@ export class FileService {
     await this.prisma.file.delete({ where: { id: fileId } });
   }
 
+  async removeMany(
+    userId: string,
+    fileIds: string[],
+  ): Promise<BatchDeleteFilesResponseDto> {
+    if (!fileIds?.length) {
+      throw new BadRequestException('At least one fileId must be provided.');
+    }
+
+    const processed = new Set<string>();
+    const uniqueIds: string[] = [];
+    for (const id of fileIds) {
+      if (processed.has(id)) {
+        continue;
+      }
+      processed.add(id);
+      uniqueIds.push(id);
+    }
+
+    const files = await this.prisma.file.findMany({
+      where: {
+        id: { in: uniqueIds },
+        space: { ownerId: userId },
+      },
+    });
+
+    const fileMap = new Map(files.map((file) => [file.id, file]));
+    const deleted: string[] = [];
+    const failed: BatchDeleteFailureDto[] = [];
+
+    for (const fileId of uniqueIds) {
+      const file = fileMap.get(fileId);
+
+      if (!file) {
+        failed.push(
+          new BatchDeleteFailureDto({
+            fileId,
+            error: 'File not found or access denied.',
+          }),
+        );
+        continue;
+      }
+
+      try {
+        await this.storage.delete(file.s3Key);
+      } catch (error) {
+        const message = formatError(
+          'Failed to delete file from storage',
+          error,
+        );
+        failed.push(new BatchDeleteFailureDto({ fileId, error: message }));
+        await this.safeUpdateFileError(fileId, message);
+        continue;
+      }
+
+      if (file.vectorStoreId && file.openAiFileId) {
+        try {
+          await this.openAi.deleteFile(file.vectorStoreId, file.openAiFileId);
+        } catch (error) {
+          const message = formatError(
+            'Failed to delete file from OpenAI vector store',
+            error,
+          );
+          failed.push(new BatchDeleteFailureDto({ fileId, error: message }));
+          await this.safeUpdateFileError(fileId, message);
+          continue;
+        }
+      }
+
+      try {
+        await this.prisma.file.delete({ where: { id: fileId } });
+        deleted.push(fileId);
+      } catch (error) {
+        const message = formatError('Failed to delete file record', error);
+        failed.push(new BatchDeleteFailureDto({ fileId, error: message }));
+        await this.safeUpdateFileError(fileId, message);
+      }
+    }
+
+    return new BatchDeleteFilesResponseDto({ deleted, failed });
+  }
+
+  async generateDownloadUrls(
+    userId: string,
+    fileIds: string[],
+  ): Promise<BatchDownloadFilesResponseDto> {
+    if (!fileIds?.length) {
+      throw new BadRequestException('At least one fileId must be provided.');
+    }
+
+    const processed = new Set<string>();
+    const uniqueIds: string[] = [];
+    for (const id of fileIds) {
+      if (processed.has(id)) {
+        continue;
+      }
+      processed.add(id);
+      uniqueIds.push(id);
+    }
+
+    const files = await this.prisma.file.findMany({
+      where: {
+        id: { in: uniqueIds },
+        space: { ownerId: userId },
+      },
+    });
+
+    const fileMap = new Map(files.map((file) => [file.id, file]));
+
+    if (fileMap.size !== uniqueIds.length) {
+      const missing = uniqueIds.filter((id) => !fileMap.has(id));
+      throw new NotFoundException(
+        `Files not found or access denied: ${missing.join(', ')}`,
+      );
+    }
+
+    const items: BatchDownloadFileItemDto[] = [];
+
+    for (const fileId of uniqueIds) {
+      const file = fileMap.get(fileId);
+      if (!file) {
+        continue;
+      }
+
+      try {
+        const downloadUrl = await this.storage.getPresignedUrl(file.s3Key);
+        items.push(
+          new BatchDownloadFileItemDto({
+            fileId: file.id,
+            filename: file.filename,
+            mimetype: file.mimetype,
+            size: Number(file.size),
+            downloadUrl,
+          }),
+        );
+      } catch (error) {
+        throw new InternalServerErrorException(
+          formatError('Failed to generate download URL', error),
+        );
+      }
+    }
+
+    return new BatchDownloadFilesResponseDto({ files: items });
+  }
+
   async getFileOwnerId(fileId: string): Promise<string | null> {
     const file = await this.prisma.file.findUnique({
       where: { id: fileId },
@@ -397,5 +552,24 @@ export class FileService {
 
     const name = `${VECTOR_STORE_NAME_PREFIX}-${userId}`;
     return this.openAi.createVectorStore(name);
+  }
+
+  private async safeUpdateFileError(
+    fileId: string,
+    message: string,
+  ): Promise<void> {
+    try {
+      await this.prisma.file.update({
+        where: { id: fileId },
+        data: { error: message },
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Failed to record error for file ${fileId}: ${formatError(
+          'Update failed',
+          error,
+        )}`,
+      );
+    }
   }
 }
