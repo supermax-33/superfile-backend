@@ -40,6 +40,7 @@ model User {
   sessions           Session[]
   spaces             Space[]
   files              File[]
+  reminders          Reminder[]
 }
 
 model VerificationToken {
@@ -120,4 +121,18 @@ model File {
 
   space Space @relation(fields: [spaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   user  User  @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  reminders Reminder[] @relation("ReminderFiles")
+}
+
+model Reminder {
+  id        String   @id @default(uuid())
+  ownerId   String
+  title     String
+  note      String?
+  remindAt  DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  files File[] @relation("ReminderFiles")
 }
