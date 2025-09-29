@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import OpenAI from 'openai';
 import { APIError } from 'openai/error';
 import { toFile } from 'openai/uploads';
-import { OPENAI_CLIENT_TOKEN } from './file.tokens';
+import { OPENAI_CLIENT_TOKEN } from './openai.tokens';
 
 type UploadResult = {
   fileId: string;
@@ -25,6 +25,20 @@ export class OpenAiVectorStoreService {
   async createVectorStore(name: string): Promise<string> {
     const result = await this.client.vectorStores.create({ name });
     return result.id;
+  }
+
+  async deleteVectorStore(vectorStoreId: string): Promise<void> {
+    try {
+      await this.client.vectorStores.del(vectorStoreId);
+    } catch (error) {
+      if (this.isNotFound(error)) {
+        return;
+      }
+      this.logger.warn(
+        `Failed to delete vector store ${vectorStoreId}: ${error}`,
+      );
+      throw error;
+    }
   }
 
   async uploadFile(

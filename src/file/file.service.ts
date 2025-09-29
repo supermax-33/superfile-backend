@@ -12,13 +12,9 @@ import { FileResponseDto } from './dto/file-response.dto';
 import { ListFilesQueryDto } from './dto/list-files-query.dto';
 import { S3FileStorageService } from './s3-file-storage.service';
 import { FileProgressService } from './file-progress.service';
-import { OpenAiVectorStoreService } from './openai-vector-store.service';
+import { OpenAiVectorStoreService } from '../openai/openai-vector-store.service';
 import { FileProgressResponseDto } from './dto/file-progress-response.dto';
-import {
-  ALLOWED_MIME_TYPES,
-  MAX_FILE_SIZE_BYTES,
-  VECTOR_STORE_NAME_PREFIX,
-} from 'config';
+import { ALLOWED_MIME_TYPES, MAX_FILE_SIZE_BYTES } from 'config';
 import { buildS3Key, formatError, normalizeName } from 'utils/helpers';
 
 @Injectable()
@@ -41,7 +37,7 @@ export class FileService {
 
     const space = await this.prisma.space.findUnique({
       where: { id: spaceId },
-      select: { ownerId: true },
+      select: { ownerId: true, vectorStoreId: true },
     });
 
     if (!space) {
@@ -52,7 +48,12 @@ export class FileService {
       throw new ForbiddenException('You do not own the target space.');
     }
 
-    const vectorStoreId = await this.resolveVectorStoreId(userId);
+    const vectorStoreId = space.vectorStoreId;
+    if (!vectorStoreId) {
+      throw new BadRequestException(
+        'No vector store is configured for this space. Please recreate the space or contact support.',
+      );
+    }
 
     const responses: FileResponseDto[] = [];
 
@@ -382,20 +383,5 @@ export class FileService {
     throw new InternalServerErrorException(
       'File buffer is required for OpenAI ingestion.',
     );
-  }
-
-  private async resolveVectorStoreId(userId: string): Promise<string> {
-    const existing = await this.prisma.file.findFirst({
-      where: { userId, vectorStoreId: { not: null } },
-      orderBy: { uploadedAt: 'desc' },
-      select: { vectorStoreId: true },
-    });
-
-    if (existing?.vectorStoreId) {
-      return existing.vectorStoreId;
-    }
-
-    const name = `${VECTOR_STORE_NAME_PREFIX}-${userId}`;
-    return this.openAi.createVectorStore(name);
   }
 }
