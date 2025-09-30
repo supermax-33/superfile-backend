@@ -51,6 +51,8 @@ model VerificationToken {
   createdAt         DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
 }
 
 model PasswordResetToken {
@@ -62,6 +64,8 @@ model PasswordResetToken {
   createdAt  DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
 }
 
 model Space {
@@ -78,6 +82,8 @@ model Space {
   reminders     Reminder[]
 
   owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([ownerId])
 }
 
 model SpaceLogo {
@@ -103,6 +109,8 @@ model Session {
   revokedAt         DateTime?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model File {
@@ -123,6 +131,10 @@ model File {
   space Space @relation(fields: [spaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   Reminder Reminder[] @relation("ReminderFiles")
+
+  @@index([spaceId, status])
+  @@index([spaceId, uploadedAt])
+  @@index([spaceId, openAiFileId])
 }
 
 model Conversation {
@@ -136,6 +148,8 @@ model Conversation {
 
   space    Space                 @relation(fields: [spaceId], references: [id], onDelete: Cascade)
   messages ConversationMessage[]
+
+  @@index([spaceId, createdAt])
 }
 
 enum ConversationRole {
@@ -153,7 +167,8 @@ model ConversationMessage {
   createdAt      DateTime         @default(now())
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  reminders    Reminder[]   @relation("ReminderFiles")
+
+  @@index([conversationId, createdAt])
 }
 
 model Reminder {
@@ -168,5 +183,5 @@ model Reminder {
   space Space  @relation(fields: [spaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   files File[] @relation("ReminderFiles")
 
-  ConversationMessage ConversationMessage[] @relation("ReminderFiles")
+  @@index([spaceId, remindAt])
 }
