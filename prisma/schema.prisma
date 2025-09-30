@@ -24,6 +24,10 @@ enum FileStatus {
   FAILED     @map("failed")
 }
 
+enum ConversationRole {
+  USER
+  ASSISTANT
+}
 model User {
   id            String       @id @default(uuid())
   email         String       @unique
@@ -32,7 +36,6 @@ model User {
   provider      AuthProvider @default(LOCAL)
   providerId    String?      @unique
   displayName   String?
-  vectorStoreId String?      @db.VarChar(255)
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
@@ -69,11 +72,12 @@ model Space {
   slug          String         @unique @db.VarChar(255)
   name          String         @db.VarChar(255)
   ownerId       String
-  vectorStoreId String?        @unique @db.VarChar(255)
   logo          SpaceLogo?
-  files         File[]
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
+  vectorStoreId String?        @unique @db.VarChar(255)
+
+  files         File[]
   conversations Conversation[]
   reminders     Reminder[]
 
@@ -120,9 +124,9 @@ model File {
   uploadedAt    DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 
-  space Space @relation(fields: [spaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-
   Reminder Reminder[]
+
+  space Space @relation(fields: [spaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 }
 
 model Conversation {
@@ -134,13 +138,9 @@ model Conversation {
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
-  space    Space                 @relation(fields: [spaceId], references: [id], onDelete: Cascade)
   messages ConversationMessage[]
-}
 
-enum ConversationRole {
-  USER
-  ASSISTANT
+  space    Space                 @relation(fields: [spaceId], references: [id], onDelete: Cascade)
 }
 
 model ConversationMessage {
@@ -152,8 +152,9 @@ model ConversationMessage {
   actions        Json?
   createdAt      DateTime         @default(now())
 
-  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   reminders    Reminder[]
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 }
 
 model Reminder {
@@ -165,8 +166,8 @@ model Reminder {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  space Space  @relation(fields: [spaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  files File[] 
-
+  files File[]
   ConversationMessage ConversationMessage[]
+
+  space Space  @relation(fields: [spaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 }
