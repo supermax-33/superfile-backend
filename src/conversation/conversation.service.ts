@@ -9,7 +9,7 @@ import { Inject } from '@nestjs/common';
 import {
   Conversation,
   ConversationMessage,
-  ConversationMessageRole,
+  ConversationRole,
   FileStatus,
   Prisma,
 } from '@prisma/client';
@@ -57,21 +57,30 @@ export class ConversationService {
 
   async createConversation(
     userId: string,
+    spaceId: string,
     title?: string,
   ): Promise<ConversationResponseDto> {
+    await this.ensureSpaceAccess(spaceId, userId);
+
     const conversation = await this.prisma.conversation.create({
       data: {
-        userId,
+        spaceId,
         title: title ?? null,
+        manuallyRenamed: Boolean(title),
       },
     });
 
     return new ConversationResponseDto(conversation);
   }
 
-  async listConversations(userId: string): Promise<ConversationResponseDto[]> {
+  async listConversations(
+    userId: string,
+    spaceId: string,
+  ): Promise<ConversationResponseDto[]> {
+    await this.ensureSpaceAccess(spaceId, userId);
+
     const conversations = await this.prisma.conversation.findMany({
-      where: { userId },
+      where: { spaceId },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -84,7 +93,10 @@ export class ConversationService {
     conversationId: string,
     userId: string,
   ): Promise<ConversationMessageResponseDto[]> {
-    await this.ensureConversationAccess(conversationId, userId);
+    const conversation = await this.ensureConversationAccess(
+      conversationId,
+      userId,
+    );
 
     const messages = await this.prisma.conversationMessage.findMany({
       where: { conversationId },
@@ -92,7 +104,9 @@ export class ConversationService {
     });
 
     return Promise.all(
-      messages.map((message) => this.hydrateMessage(message, userId)),
+      messages.map((message) =>
+        this.hydrateMessage(message, conversation.spaceId),
+      ),
     );
   }
 
@@ -120,30 +134,41 @@ export class ConversationService {
       };
 
       (async () => {
-        await this.ensureConversationAccess(conversationId, userId);
+        const conversation = await this.ensureConversationAccess(
+          conversationId,
+          userId,
+        );
+
+        const { spaceId } = conversation;
 
         await this.prisma.conversationMessage.create({
           data: {
             conversationId,
-            userId,
-            role: ConversationMessageRole.USER,
+            role: ConversationRole.USER,
             content: dto.content,
             references: null,
+            actions: null,
           },
         });
 
-        const shouldDecline = await this.shouldDeclineAssistantResponse(userId);
+        const shouldDecline = await this.shouldDeclineAssistantResponse(
+          userId,
+          spaceId,
+        );
         if (shouldDecline) {
-          const assistantMessage = await this.prisma.conversationMessage.create({
-            data: {
-              conversationId,
-              role: ConversationMessageRole.ASSISTANT,
-              content: FALLBACK_NO_FILES_MESSAGE,
-              references: { files: [] },
+          const assistantMessage = await this.prisma.conversationMessage.create(
+            {
+              data: {
+                conversationId,
+                role: ConversationRole.ASSISTANT,
+                content: FALLBACK_NO_FILES_MESSAGE,
+                references: { files: [] },
+                actions: null,
+              },
             },
-          });
+          );
 
-          const hydrated = await this.hydrateMessage(assistantMessage, userId);
+          const hydrated = await this.hydrateMessage(assistantMessage, spaceId);
           observer.next({
             event: SSE_FINAL_EVENT,
             data: {
@@ -175,7 +200,7 @@ export class ConversationService {
           model: MODEL_NAME,
           input: history.map((message) => ({
             role:
-              message.role === ConversationMessageRole.ASSISTANT
+              message.role === ConversationRole.ASSISTANT
                 ? 'assistant'
                 : 'user',
             content: message.content,
@@ -202,7 +227,7 @@ export class ConversationService {
             const finalResponse = await responseStream.finalResponse();
             await this.persistAssistantMessage(
               conversationId,
-              userId,
+              spaceId,
               assistantText,
               finalResponse,
               observer,
@@ -240,9 +265,17 @@ export class ConversationService {
     });
   }
 
-  private async persistAssistantMessage(
+  async deleteConversation(
     conversationId: string,
     userId: string,
+  ): Promise<void> {
+    await this.ensureConversationAccess(conversationId, userId);
+    await this.prisma.conversation.delete({ where: { id: conversationId } });
+  }
+
+  private async persistAssistantMessage(
+    conversationId: string,
+    spaceId: string,
     assistantText: string,
     finalResponse: any,
     observer: {
@@ -250,18 +283,19 @@ export class ConversationService {
     },
   ): Promise<void> {
     const fileIds = this.extractReferencedFileIds(finalResponse);
-    const storedReferences = await this.buildStoredReferences(userId, fileIds);
+    const storedReferences = await this.buildStoredReferences(spaceId, fileIds);
 
     const assistantMessage = await this.prisma.conversationMessage.create({
       data: {
         conversationId,
-        role: ConversationMessageRole.ASSISTANT,
+        role: ConversationRole.ASSISTANT,
         content: assistantText,
         references: storedReferences,
+        actions: null,
       },
     });
 
-    const hydrated = await this.hydrateMessage(assistantMessage, userId);
+    const hydrated = await this.hydrateMessage(assistantMessage, spaceId);
     observer.next({
       event: SSE_FINAL_EVENT,
       data: {
@@ -271,7 +305,10 @@ export class ConversationService {
     });
   }
 
-  private async shouldDeclineAssistantResponse(userId: string): Promise<boolean> {
+  private async shouldDeclineAssistantResponse(
+    userId: string,
+    spaceId: string,
+  ): Promise<boolean> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { vectorStoreId: true },
@@ -283,7 +320,7 @@ export class ConversationService {
 
     const processedFile = await this.prisma.file.findFirst({
       where: {
-        userId,
+        spaceId,
         status: FileStatus.SUCCESS,
       },
       select: { id: true },
@@ -295,16 +332,17 @@ export class ConversationService {
   private async ensureConversationAccess(
     conversationId: string,
     userId: string,
-  ): Promise<Conversation> {
+  ): Promise<Conversation & { space: { ownerId: string } }> {
     const conversation = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
+      include: { space: { select: { ownerId: true } } },
     });
 
     if (!conversation) {
       throw new NotFoundException('Conversation not found.');
     }
 
-    if (conversation.userId !== userId) {
+    if (conversation.space.ownerId !== userId) {
       throw new ForbiddenException(
         'You do not have access to this conversation.',
       );
@@ -313,11 +351,32 @@ export class ConversationService {
     return conversation;
   }
 
+  private async ensureSpaceAccess(
+    spaceId: string,
+    userId: string,
+  ): Promise<void> {
+    const space = await this.prisma.space.findUnique({
+      where: { id: spaceId },
+      select: { ownerId: true },
+    });
+
+    if (!space) {
+      throw new NotFoundException('Space not found.');
+    }
+
+    if (space.ownerId !== userId) {
+      throw new ForbiddenException('You do not have access to this space.');
+    }
+  }
+
   private async hydrateMessage(
     message: ConversationMessage,
-    userId: string,
+    spaceId: string,
   ): Promise<ConversationMessageResponseDto> {
-    const references = await this.hydrateReferences(message.references, userId);
+    const references = await this.hydrateReferences(
+      message.references,
+      spaceId,
+    );
 
     return new ConversationMessageResponseDto({
       id: message.id,
@@ -325,12 +384,13 @@ export class ConversationService {
       content: message.content,
       createdAt: message.createdAt,
       references,
+      actions: message.actions ?? null,
     });
   }
 
   private async hydrateReferences(
     references: Prisma.JsonValue | null,
-    userId: string,
+    spaceId: string,
   ): Promise<ConversationMessageReferencesDto | null> {
     const storedReferences = this.parseStoredReferences(references);
 
@@ -340,7 +400,7 @@ export class ConversationService {
 
     const files = await this.prisma.file.findMany({
       where: {
-        userId,
+        spaceId,
         id: { in: storedReferences.map((ref) => ref.fileId) },
       },
       select: { id: true, openAiFileId: true, s3Key: true },
@@ -364,8 +424,13 @@ export class ConversationService {
     );
 
     const filtered = hydratedFiles.filter(
-      (reference): reference is { fileId: string; openAiFileId: string; downloadUrl: string } =>
-        reference !== null,
+      (
+        reference,
+      ): reference is {
+        fileId: string;
+        openAiFileId: string;
+        downloadUrl: string;
+      } => reference !== null,
     );
 
     return new ConversationMessageReferencesDto(filtered);
@@ -383,18 +448,17 @@ export class ConversationService {
       return [];
     }
 
-    return payload.files.filter(
-      (reference): reference is StoredFileReference =>
-        Boolean(
-          reference &&
-            typeof reference.fileId === 'string' &&
-            typeof reference.openAiFileId === 'string',
-        ),
+    return payload.files.filter((reference): reference is StoredFileReference =>
+      Boolean(
+        reference &&
+          typeof reference.fileId === 'string' &&
+          typeof reference.openAiFileId === 'string',
+      ),
     );
   }
 
   private async buildStoredReferences(
-    userId: string,
+    spaceId: string,
     openAiFileIds: string[],
   ): Promise<StoredMessageReferences> {
     if (openAiFileIds.length === 0) {
@@ -403,7 +467,7 @@ export class ConversationService {
 
     const files = await this.prisma.file.findMany({
       where: {
-        userId,
+        spaceId,
         openAiFileId: { in: openAiFileIds },
       },
       select: { id: true, openAiFileId: true },

@@ -1,9 +1,11 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Header,
   Param,
+  ParseUUIDPipe,
   Post,
   Req,
   UnauthorizedException,
@@ -12,14 +14,6 @@ import {
   Version,
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
-import {
-  ApiBearerAuth,
-  ApiBody,
-  ApiCreatedResponse,
-  ApiOkResponse,
-  ApiOperation,
-  ApiTags,
-} from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { JwtExceptionFilter } from '../auth/filters/jwt-exception.filter';
 import { RequestWithUser } from 'types';
@@ -28,10 +22,7 @@ import { CreateConversationDto } from './dto/create-conversation.dto';
 import { ConversationResponseDto } from './dto/conversation-response.dto';
 import { ConversationMessageResponseDto } from './dto/conversation-message-response.dto';
 import { SendMessageDto } from './dto/send-message.dto';
-
-@ApiTags('conversations')
-@ApiBearerAuth()
-@Controller('conversations')
+@Controller()
 @UseFilters(JwtExceptionFilter)
 @UseGuards(JwtAuthGuard)
 export class ConversationController {
@@ -46,36 +37,30 @@ export class ConversationController {
   }
 
   @Version('1')
-  @Post()
-  @ApiOperation({ summary: 'Create a new conversation.' })
-  @ApiCreatedResponse({ type: ConversationResponseDto })
+  @Post('spaces/:spaceId/conversations')
   async createConversation(
     @Req() request: RequestWithUser,
+    @Param('spaceId', new ParseUUIDPipe()) spaceId: string,
     @Body() dto: CreateConversationDto,
   ): Promise<ConversationResponseDto> {
     const userId = this.extractUserId(request);
-    return this.conversations.createConversation(userId, dto.title);
+    return this.conversations.createConversation(userId, spaceId, dto.title);
   }
 
   @Version('1')
-  @Get()
-  @ApiOperation({ summary: 'List conversations for the authenticated user.' })
-  @ApiOkResponse({ type: [ConversationResponseDto] })
+  @Get('spaces/:spaceId/conversations')
   async listConversations(
     @Req() request: RequestWithUser,
+    @Param('spaceId', new ParseUUIDPipe()) spaceId: string,
   ): Promise<ConversationResponseDto[]> {
     const userId = this.extractUserId(request);
-    return this.conversations.listConversations(userId);
+    return this.conversations.listConversations(userId, spaceId);
   }
 
   @Version('1')
-  @Get(':id/messages')
-  @ApiOperation({
-    summary: 'Fetch messages in a conversation, including fresh presigned URLs.',
-  })
-  @ApiOkResponse({ type: [ConversationMessageResponseDto] })
+  @Get('conversations/:id/messages')
   async getConversationMessages(
-    @Param('id') conversationId: string,
+    @Param('id', new ParseUUIDPipe()) conversationId: string,
     @Req() request: RequestWithUser,
   ): Promise<ConversationMessageResponseDto[]> {
     const userId = this.extractUserId(request);
@@ -83,35 +68,26 @@ export class ConversationController {
   }
 
   @Version('1')
-  @Post(':id/messages')
+  @Post('conversations/:id/messages')
   @Header('Content-Type', 'text/event-stream')
   @Header('Cache-Control', 'no-cache')
   @Header('Connection', 'keep-alive')
-  @ApiOperation({
-    summary:
-      'Send a message to the assistant and stream the reply using server-sent events.',
-  })
-  @ApiBody({ type: SendMessageDto })
-  @ApiOkResponse({
-    description:
-      'SSE stream containing token events followed by a final message with file references.',
-    content: {
-      'text/event-stream': {
-        schema: {
-          type: 'string',
-          example:
-            'event: token\ndata: partial text\n\n' +
-            'event: final\ndata: {"message":{"content":"..."},"references":{"files":[{"fileId":"...","downloadUrl":"https://..."}]}}\n\n',
-        },
-      },
-    },
-  })
   streamAssistantReply(
-    @Param('id') conversationId: string,
+    @Param('id', new ParseUUIDPipe()) conversationId: string,
     @Req() request: RequestWithUser,
     @Body() dto: SendMessageDto,
   ): Observable<{ data: unknown; event?: string }> {
     const userId = this.extractUserId(request);
     return this.conversations.streamAssistantReply(conversationId, userId, dto);
+  }
+
+  @Version('1')
+  @Delete('conversations/:id')
+  async deleteConversation(
+    @Param('id', new ParseUUIDPipe()) conversationId: string,
+    @Req() request: RequestWithUser,
+  ): Promise<void> {
+    const userId = this.extractUserId(request);
+    await this.conversations.deleteConversation(conversationId, userId);
   }
 }

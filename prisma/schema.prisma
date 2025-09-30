@@ -40,9 +40,6 @@ model User {
   resetTokens        PasswordResetToken[]
   sessions           Session[]
   spaces             Space[]
-  files              File[]
-  conversations      Conversation[]
-  conversationMessages ConversationMessage[] @relation("UserMessages")
 }
 
 model VerificationToken {
@@ -74,6 +71,7 @@ model Space {
   ownerId   String
   logo      SpaceLogo?
   files     File[]
+  conversations Conversation[]
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 
@@ -107,8 +105,7 @@ model Session {
 
 model File {
   id            String     @id @default(uuid())
-  spaceId       String
-  userId        String
+  spaceId       String     @db.Uuid
   filename      String     @db.VarChar(1024)
   mimetype      String     @db.VarChar(255)
   size          BigInt     @db.BigInt
@@ -121,34 +118,34 @@ model File {
   updatedAt     DateTime   @updatedAt
 
   space Space @relation(fields: [spaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 }
 
 model Conversation {
-  id        String   @id @default(uuid())
-  userId    String
-  title     String?  @db.VarChar(255)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                   String                 @id @default(uuid())
+  spaceId              String                 @db.Uuid
+  title                String?                @db.VarChar(255)
+  manuallyRenamed      Boolean                @default(false)
+  autoTitleGeneratedAt DateTime?
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
 
-  user      User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  messages  ConversationMessage[]
+  space    Space                  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  messages ConversationMessage[]
 }
 
-enum ConversationMessageRole {
+enum ConversationRole {
   USER
   ASSISTANT
 }
 
 model ConversationMessage {
-  id             String                   @id @default(uuid())
-  conversationId String
-  userId         String?
-  role           ConversationMessageRole
-  content        String                   @db.Text
+  id             String           @id @default(uuid())
+  conversationId String           @db.Uuid
+  role           ConversationRole @default(USER)
+  content        String           @db.VarChar(8000)
   references     Json?
-  createdAt      DateTime                 @default(now())
+  actions        Json?
+  createdAt      DateTime         @default(now())
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  user         User?        @relation("UserMessages", fields: [userId], references: [id], onDelete: SetNull)
 }

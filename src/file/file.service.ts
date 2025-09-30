@@ -65,7 +65,6 @@ export class FileService {
       const record = await this.prisma.file.create({
         data: {
           spaceId,
-          userId,
           filename: normalizeName(file.originalname),
           mimetype: file.mimetype,
           size: BigInt(file.size),
@@ -320,7 +319,6 @@ export class FileService {
     return new FileResponseDto({
       id: file.id,
       spaceId: file.spaceId,
-      userId: file.userId,
       filename: file.filename,
       mimetype: file.mimetype,
       size: Number(file.size),
@@ -396,7 +394,10 @@ export class FileService {
     }
 
     const existing = await this.prisma.file.findFirst({
-      where: { userId, vectorStoreId: { not: null } },
+      where: {
+        vectorStoreId: { not: null },
+        space: { ownerId: userId },
+      },
       orderBy: { uploadedAt: 'desc' },
       select: { vectorStoreId: true },
     });
