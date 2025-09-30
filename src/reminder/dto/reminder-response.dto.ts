@@ -6,6 +6,7 @@ export class ReminderResponseDto {
   }
 
   id!: string;
+  spaceId!: string;
   ownerId!: string;
   title!: string;
   note: string | null = null;

@@ -11,15 +11,18 @@ export class ReminderService {
   constructor(private readonly prisma: PrismaService) {}
 
   async createReminder(
-    ownerId: string,
+    userId: string,
+    spaceId: string,
     dto: CreateReminderDto,
   ): Promise<ReminderResponseDto> {
+    await this.ensureSpaceOwnership(userId, spaceId);
+
     const fileIds = this.uniqueIds(dto.fileIds);
-    await this.assertFilesBelongToUser(ownerId, fileIds);
+    await this.assertFilesBelongToSpace(spaceId, fileIds);
 
     const reminder = await this.prisma.reminder.create({
       data: {
-        ownerId,
+        spaceId,
         title: dto.title,
         note: dto.note ?? null,
         remindAt: new Date(dto.remindAt),
@@ -27,32 +30,38 @@ export class ReminderService {
           ? { files: { connect: fileIds.map((id) => ({ id })) } }
           : {}),
       },
-      include: { files: true },
+      include: { files: true, space: { select: { ownerId: true } } },
     });
 
     return this.toReminderResponse(reminder);
   }
 
-  async listReminders(ownerId: string): Promise<ReminderResponseDto[]> {
+  async listReminders(
+    userId: string,
+    spaceId: string,
+  ): Promise<ReminderResponseDto[]> {
+    await this.ensureSpaceOwnership(userId, spaceId);
+
     const reminders = await this.prisma.reminder.findMany({
-      where: { ownerId },
+      where: { spaceId },
       orderBy: { remindAt: 'asc' },
-      include: { files: true },
+      include: { files: true, space: { select: { ownerId: true } } },
     });
 
     return reminders.map((reminder) => this.toReminderResponse(reminder));
   }
 
   async getReminder(
-    ownerId: string,
+    userId: string,
+    spaceId: string,
     reminderId: string,
   ): Promise<ReminderResponseDto> {
-    const reminder = await this.prisma.reminder.findUnique({
-      where: { id: reminderId },
-      include: { files: true },
+    const reminder = await this.prisma.reminder.findFirst({
+      where: { id: reminderId, spaceId },
+      include: { files: true, space: { select: { ownerId: true } } },
     });
 
-    if (!reminder || reminder.ownerId !== ownerId) {
+    if (!reminder || reminder.space.ownerId !== userId) {
       throw new NotFoundException('Reminder not found.');
     }
 
@@ -60,16 +69,17 @@ export class ReminderService {
   }
 
   async updateReminder(
-    ownerId: string,
+    userId: string,
+    spaceId: string,
     reminderId: string,
     dto: UpdateReminderDto,
   ): Promise<ReminderResponseDto> {
-    const existing = await this.prisma.reminder.findUnique({
-      where: { id: reminderId },
-      select: { ownerId: true },
+    const existing = await this.prisma.reminder.findFirst({
+      where: { id: reminderId, spaceId },
+      select: { id: true, space: { select: { ownerId: true } } },
     });
 
-    if (!existing || existing.ownerId !== ownerId) {
+    if (!existing || existing.space.ownerId !== userId) {
       throw new NotFoundException('Reminder not found.');
     }
 
@@ -89,26 +99,30 @@ export class ReminderService {
 
     if (dto.fileIds !== undefined) {
       const fileIds = this.uniqueIds(dto.fileIds);
-      await this.assertFilesBelongToUser(ownerId, fileIds);
+      await this.assertFilesBelongToSpace(spaceId, fileIds);
       data.files = { set: fileIds.map((id) => ({ id })) };
     }
 
     const reminder = await this.prisma.reminder.update({
       where: { id: reminderId },
       data,
-      include: { files: true },
+      include: { files: true, space: { select: { ownerId: true } } },
     });
 
     return this.toReminderResponse(reminder);
   }
 
-  async deleteReminder(ownerId: string, reminderId: string): Promise<void> {
+  async deleteReminder(
+    userId: string,
+    spaceId: string,
+    reminderId: string,
+  ): Promise<void> {
     const reminder = await this.prisma.reminder.findFirst({
-      where: { id: reminderId, ownerId },
-      select: { id: true },
+      where: { id: reminderId, spaceId },
+      select: { id: true, space: { select: { ownerId: true } } },
     });
 
-    if (!reminder) {
+    if (!reminder || reminder.space.ownerId !== userId) {
       throw new NotFoundException('Reminder not found.');
     }
 
@@ -116,31 +130,35 @@ export class ReminderService {
   }
 
   async addFilesToReminder(
-    ownerId: string,
+    userId: string,
+    spaceId: string,
     reminderId: string,
     fileIds: string[],
   ): Promise<ReminderResponseDto> {
-    const reminder = await this.prisma.reminder.findUnique({
-      where: { id: reminderId },
-      include: { files: { select: { id: true } } },
+    const reminder = await this.prisma.reminder.findFirst({
+      where: { id: reminderId, spaceId },
+      include: {
+        files: { select: { id: true } },
+        space: { select: { ownerId: true } },
+      },
     });
 
-    if (!reminder || reminder.ownerId !== ownerId) {
+    if (!reminder || reminder.space.ownerId !== userId) {
       throw new NotFoundException('Reminder not found.');
     }
 
     const uniqueFileIds = this.uniqueIds(fileIds);
-    await this.assertFilesBelongToUser(ownerId, uniqueFileIds);
+    await this.assertFilesBelongToSpace(spaceId, uniqueFileIds);
 
     const currentlyLinked = new Set(reminder.files.map((file) => file.id));
     const connectIds = uniqueFileIds.filter((id) => !currentlyLinked.has(id));
 
     if (connectIds.length === 0) {
-      const current = await this.prisma.reminder.findUnique({
-        where: { id: reminderId },
-        include: { files: true },
+      const current = await this.prisma.reminder.findFirst({
+        where: { id: reminderId, spaceId },
+        include: { files: true, space: { select: { ownerId: true } } },
       });
-      if (!current) {
+      if (!current || current.space.ownerId !== userId) {
         throw new NotFoundException('Reminder not found.');
       }
       return this.toReminderResponse(current);
@@ -149,28 +167,29 @@ export class ReminderService {
     const updated = await this.prisma.reminder.update({
       where: { id: reminderId },
       data: { files: { connect: connectIds.map((id) => ({ id })) } },
-      include: { files: true },
+      include: { files: true, space: { select: { ownerId: true } } },
     });
 
     return this.toReminderResponse(updated);
   }
 
   async removeFileFromReminder(
-    ownerId: string,
+    userId: string,
+    spaceId: string,
     reminderId: string,
     fileId: string,
   ): Promise<ReminderResponseDto> {
-    const reminder = await this.prisma.reminder.findUnique({
-      where: { id: reminderId },
-      select: { ownerId: true },
+    const reminder = await this.prisma.reminder.findFirst({
+      where: { id: reminderId, spaceId },
+      select: { id: true, space: { select: { ownerId: true } } },
     });
 
-    if (!reminder || reminder.ownerId !== ownerId) {
+    if (!reminder || reminder.space.ownerId !== userId) {
       throw new NotFoundException('Reminder not found.');
     }
 
     const file = await this.prisma.file.findFirst({
-      where: { id: fileId, userId: ownerId },
+      where: { id: fileId, spaceId },
       select: { id: true },
     });
 
@@ -179,7 +198,7 @@ export class ReminderService {
     }
 
     const linked = await this.prisma.reminder.findFirst({
-      where: { id: reminderId, ownerId, files: { some: { id: fileId } } },
+      where: { id: reminderId, spaceId, files: { some: { id: fileId } } },
       select: { id: true },
     });
 
@@ -190,14 +209,28 @@ export class ReminderService {
     const updated = await this.prisma.reminder.update({
       where: { id: reminderId },
       data: { files: { disconnect: [{ id: fileId }] } },
-      include: { files: true },
+      include: { files: true, space: { select: { ownerId: true } } },
     });
 
     return this.toReminderResponse(updated);
   }
 
-  private async assertFilesBelongToUser(
-    ownerId: string,
+  private async ensureSpaceOwnership(
+    userId: string,
+    spaceId: string,
+  ): Promise<void> {
+    const space = await this.prisma.space.findUnique({
+      where: { id: spaceId },
+      select: { ownerId: true },
+    });
+
+    if (!space || space.ownerId !== userId) {
+      throw new NotFoundException('Space not found.');
+    }
+  }
+
+  private async assertFilesBelongToSpace(
+    spaceId: string,
     fileIds: string[],
   ): Promise<void> {
     if (fileIds.length === 0) {
@@ -207,13 +240,15 @@ export class ReminderService {
     const files = await this.prisma.file.findMany({
       where: {
         id: { in: fileIds },
-        userId: ownerId,
+        spaceId,
       },
       select: { id: true },
     });
 
     if (files.length !== fileIds.length) {
-      throw new NotFoundException('One or more files were not found.');
+      throw new NotFoundException(
+        'One or more files were not found in the target space.',
+      );
     }
   }
 
@@ -226,11 +261,12 @@ export class ReminderService {
   }
 
   private toReminderResponse(
-    reminder: Reminder & { files: File[] },
+    reminder: Reminder & { files: File[]; space: { ownerId: string } },
   ): ReminderResponseDto {
     return new ReminderResponseDto({
       id: reminder.id,
-      ownerId: reminder.ownerId,
+      spaceId: reminder.spaceId,
+      ownerId: reminder.space.ownerId,
       title: reminder.title,
       note: reminder.note ?? null,
       remindAt: reminder.remindAt,
@@ -241,7 +277,7 @@ export class ReminderService {
           new ReminderFileResponseDto({
             id: file.id,
             spaceId: file.spaceId,
-            userId: file.userId,
+            userId: reminder.space.ownerId,
             filename: file.filename,
             mimetype: file.mimetype,
             size: Number(file.size),

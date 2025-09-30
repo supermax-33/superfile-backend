@@ -6,6 +6,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Request,
@@ -25,7 +26,7 @@ import { RequestWithUser } from 'types';
 
 @UseGuards(JwtAuthGuard)
 @UseFilters(JwtExceptionFilter)
-@Controller('reminders')
+@Controller('spaces/:spaceId/reminders')
 export class ReminderController {
   constructor(private readonly reminderService: ReminderService) {}
 
@@ -34,37 +35,48 @@ export class ReminderController {
   async create(
     @Body() dto: CreateReminderDto,
     @Request() req: RequestWithUser,
+    @Param('spaceId', new ParseUUIDPipe()) spaceId: string,
   ): Promise<ReminderResponseDto> {
-    const ownerId = this.getUserId(req);
-    return this.reminderService.createReminder(ownerId, dto);
+    const userId = this.getUserId(req);
+    return this.reminderService.createReminder(userId, spaceId, dto);
   }
 
   @Version('1')
   @Get()
-  async list(@Request() req: RequestWithUser): Promise<ReminderResponseDto[]> {
-    const ownerId = this.getUserId(req);
-    return this.reminderService.listReminders(ownerId);
+  async list(
+    @Request() req: RequestWithUser,
+    @Param('spaceId', new ParseUUIDPipe()) spaceId: string,
+  ): Promise<ReminderResponseDto[]> {
+    const userId = this.getUserId(req);
+    return this.reminderService.listReminders(userId, spaceId);
   }
 
   @Version('1')
   @Get(':id')
   async findOne(
     @Request() req: RequestWithUser,
-    @Param('id') reminderId: string,
+    @Param('spaceId', new ParseUUIDPipe()) spaceId: string,
+    @Param('id', new ParseUUIDPipe()) reminderId: string,
   ): Promise<ReminderResponseDto> {
-    const ownerId = this.getUserId(req);
-    return this.reminderService.getReminder(ownerId, reminderId);
+    const userId = this.getUserId(req);
+    return this.reminderService.getReminder(userId, spaceId, reminderId);
   }
 
   @Version('1')
   @Patch(':id')
   async update(
     @Request() req: RequestWithUser,
-    @Param('id') reminderId: string,
+    @Param('spaceId', new ParseUUIDPipe()) spaceId: string,
+    @Param('id', new ParseUUIDPipe()) reminderId: string,
     @Body() dto: UpdateReminderDto,
   ): Promise<ReminderResponseDto> {
-    const ownerId = this.getUserId(req);
-    return this.reminderService.updateReminder(ownerId, reminderId, dto);
+    const userId = this.getUserId(req);
+    return this.reminderService.updateReminder(
+      userId,
+      spaceId,
+      reminderId,
+      dto,
+    );
   }
 
   @Version('1')
@@ -72,22 +84,25 @@ export class ReminderController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(
     @Request() req: RequestWithUser,
-    @Param('id') reminderId: string,
+    @Param('spaceId', new ParseUUIDPipe()) spaceId: string,
+    @Param('id', new ParseUUIDPipe()) reminderId: string,
   ): Promise<void> {
-    const ownerId = this.getUserId(req);
-    await this.reminderService.deleteReminder(ownerId, reminderId);
+    const userId = this.getUserId(req);
+    await this.reminderService.deleteReminder(userId, spaceId, reminderId);
   }
 
   @Version('1')
   @Post(':id/files')
   async addFiles(
     @Request() req: RequestWithUser,
-    @Param('id') reminderId: string,
+    @Param('spaceId', new ParseUUIDPipe()) spaceId: string,
+    @Param('id', new ParseUUIDPipe()) reminderId: string,
     @Body() dto: AddReminderFilesDto,
   ): Promise<ReminderResponseDto> {
-    const ownerId = this.getUserId(req);
+    const userId = this.getUserId(req);
     return this.reminderService.addFilesToReminder(
-      ownerId,
+      userId,
+      spaceId,
       reminderId,
       dto.fileIds,
     );
@@ -97,12 +112,14 @@ export class ReminderController {
   @Delete(':id/files/:fileId')
   async removeFile(
     @Request() req: RequestWithUser,
-    @Param('id') reminderId: string,
-    @Param('fileId') fileId: string,
+    @Param('spaceId', new ParseUUIDPipe()) spaceId: string,
+    @Param('id', new ParseUUIDPipe()) reminderId: string,
+    @Param('fileId', new ParseUUIDPipe()) fileId: string,
   ): Promise<ReminderResponseDto> {
-    const ownerId = this.getUserId(req);
+    const userId = this.getUserId(req);
     return this.reminderService.removeFileFromReminder(
-      ownerId,
+      userId,
+      spaceId,
       reminderId,
       fileId,
     );
