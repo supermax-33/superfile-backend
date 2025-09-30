@@ -190,3 +190,58 @@ curl -X DELETE http://localhost:3000/v1/files/<FILE_ID> \
 ```
 
 When the delete call succeeds the record is removed from Prisma, the object is purged from S3, and (if one exists) the associated OpenAI vector store file is deleted.
+
+---
+
+# Testing the Reminders API
+
+Reminders are scoped to a space and surfaced under `/v1/spaces/:spaceId/reminders`. All calls require the bearer token from the authentication flow as well as the UUID of a space the caller owns.
+
+## Create a Reminder
+
+```bash
+curl -X POST http://localhost:3000/v1/spaces/<SPACE_ID>/reminders \
+  -H 'Authorization: Bearer <ACCESS_TOKEN>' \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "title": "Quarterly business review",
+        "note": "Prep deck by Friday",
+        "remindAt": "2024-09-30T15:00:00.000Z",
+        "fileIds": ["<FILE_ID>"]
+      }'
+```
+
+## List Reminders for a Space
+
+```bash
+curl -X GET http://localhost:3000/v1/spaces/<SPACE_ID>/reminders \
+  -H 'Authorization: Bearer <ACCESS_TOKEN>'
+```
+
+## Update a Reminder
+
+```bash
+curl -X PATCH http://localhost:3000/v1/spaces/<SPACE_ID>/reminders/<REMINDER_ID> \
+  -H 'Authorization: Bearer <ACCESS_TOKEN>' \
+  -H 'Content-Type: application/json' \
+  -d '{"note": "Deck finalized"}'
+```
+
+## Attach or Remove Files
+
+```bash
+curl -X POST http://localhost:3000/v1/spaces/<SPACE_ID>/reminders/<REMINDER_ID>/files \
+  -H 'Authorization: Bearer <ACCESS_TOKEN>' \
+  -H 'Content-Type: application/json' \
+  -d '{"fileIds": ["<FILE_ID>"]}'
+
+curl -X DELETE http://localhost:3000/v1/spaces/<SPACE_ID>/reminders/<REMINDER_ID>/files/<FILE_ID> \
+  -H 'Authorization: Bearer <ACCESS_TOKEN>'
+```
+
+## Delete a Reminder
+
+```bash
+curl -X DELETE http://localhost:3000/v1/spaces/<SPACE_ID>/reminders/<REMINDER_ID> \
+  -H 'Authorization: Bearer <ACCESS_TOKEN>'
+```

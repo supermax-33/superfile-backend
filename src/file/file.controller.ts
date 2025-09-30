@@ -27,12 +27,14 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { JwtExceptionFilter } from 'src/auth/filters/jwt-exception.filter';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { FileResponseDto } from './dto/file-response.dto';
+import { FileNoteResponseDto } from './dto/file-note-response.dto';
 import { ListFilesQueryDto } from './dto/list-files-query.dto';
 import { FileOwnerGuard } from './guards/file-owner.guard';
 import { FileService } from './file.service';
 import { UploadFilesDto } from './dto/upload-files.dto';
 import { RequestWithUser } from 'types';
 import { FileProgressResponseDto } from './dto/file-progress-response.dto';
+import { UpdateFileNoteDto } from './dto/update-file-note.dto';
 import {
   BatchDeleteFilesDto,
   BatchDeleteFilesResponseDto,
@@ -63,7 +65,6 @@ const uploadInterceptor = FilesInterceptor(FILE_UPLOAD_FIELD, undefined, {
     );
   },
 });
-
 @Controller('files')
 @UseFilters(JwtExceptionFilter)
 @UseGuards(JwtAuthGuard)
@@ -89,7 +90,12 @@ export class FileController {
   ): Promise<FileResponseDto[]> {
     const userId = this.extractUserId(request);
 
-    return this.fileService.uploadFiles(userId, body.spaceId, files);
+    return this.fileService.uploadFiles(
+      userId,
+      body.spaceId,
+      files,
+      body.note ?? null,
+    );
   }
 
   @Version('1')
@@ -126,6 +132,41 @@ export class FileController {
     }
 
     return new StreamableFile(result.stream);
+  }
+
+  @Version('1')
+  @Get(':id/note')
+  @UseGuards(FileOwnerGuard)
+  async getNote(
+    @Param('id') fileId: string,
+    @Req() request: RequestWithUser,
+  ): Promise<FileNoteResponseDto> {
+    const userId = this.extractUserId(request);
+    return this.fileService.getNote(fileId, userId);
+  }
+
+  @Version('1')
+  @Patch(':id/note')
+  @UseGuards(FileOwnerGuard)
+  async updateNote(
+    @Param('id') fileId: string,
+    @Req() request: RequestWithUser,
+    @Body() body: UpdateFileNoteDto,
+  ): Promise<FileNoteResponseDto> {
+    const userId = this.extractUserId(request);
+    return this.fileService.updateNote(fileId, userId, body.note);
+  }
+
+  @Version('1')
+  @Delete(':id/note')
+  @UseGuards(FileOwnerGuard)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async deleteNote(
+    @Param('id') fileId: string,
+    @Req() request: RequestWithUser,
+  ): Promise<void> {
+    const userId = this.extractUserId(request);
+    await this.fileService.clearNote(fileId, userId);
   }
 
   @Version('1')

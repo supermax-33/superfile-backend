@@ -10,10 +10,11 @@ import { Readable } from 'node:stream';
 import { File, FileStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { FileResponseDto } from './dto/file-response.dto';
+import { FileNoteResponseDto } from './dto/file-note-response.dto';
 import { ListFilesQueryDto } from './dto/list-files-query.dto';
 import { S3FileStorageService } from './s3-file-storage.service';
 import { FileProgressService } from './file-progress.service';
-import { OpenAiVectorStoreService } from './openai-vector-store.service';
+import { OpenAiVectorStoreService } from '../openai/openai-vector-store.service';
 import { FileProgressResponseDto } from './dto/file-progress-response.dto';
 import {
   BatchDeleteFailureDto,
@@ -23,11 +24,7 @@ import {
   BatchDownloadFileItemDto,
   BatchDownloadFilesResponseDto,
 } from './dto/batch-download-files.dto';
-import {
-  ALLOWED_MIME_TYPES,
-  MAX_FILE_SIZE_BYTES,
-  VECTOR_STORE_NAME_PREFIX,
-} from 'config';
+import { ALLOWED_MIME_TYPES, MAX_FILE_SIZE_BYTES } from 'config';
 import { buildS3Key, formatError, normalizeName } from 'utils/helpers';
 
 @Injectable()
@@ -45,6 +42,7 @@ export class FileService {
     userId: string,
     spaceId: string,
     files: Express.Multer.File[],
+    note?: string | null,
   ): Promise<FileResponseDto[]> {
     if (!files || files.length === 0) {
       throw new BadRequestException('At least one file must be provided.');
@@ -52,7 +50,7 @@ export class FileService {
 
     const space = await this.prisma.space.findUnique({
       where: { id: spaceId },
-      select: { ownerId: true },
+      select: { ownerId: true, vectorStoreId: true },
     });
 
     if (!space) {
@@ -63,7 +61,12 @@ export class FileService {
       throw new ForbiddenException('You do not own the target space.');
     }
 
-    const vectorStoreId = await this.resolveVectorStoreId(userId);
+    const vectorStoreId = space.vectorStoreId;
+    if (!vectorStoreId) {
+      throw new BadRequestException(
+        'No vector store is configured for this space. Please recreate the space or contact support.',
+      );
+    }
 
     const responses: FileResponseDto[] = [];
 
@@ -75,7 +78,6 @@ export class FileService {
       const record = await this.prisma.file.create({
         data: {
           spaceId,
-          userId,
           filename: normalizeName(file.originalname),
           mimetype: file.mimetype,
           size: BigInt(file.size),
@@ -84,6 +86,7 @@ export class FileService {
           vectorStoreId,
           openAiFileId: null,
           error: null,
+          note: note ?? null,
         },
       });
 
@@ -173,6 +176,67 @@ export class FileService {
     });
 
     return files.map((file) => this.toFileResponse(file));
+  }
+
+  async getNote(fileId: string, userId: string): Promise<FileNoteResponseDto> {
+    const file = await this.prisma.file.findFirst({
+      where: {
+        id: fileId,
+        space: { ownerId: userId },
+      },
+      select: { note: true },
+    });
+
+    if (!file) {
+      throw new NotFoundException('File not found.');
+    }
+
+    return new FileNoteResponseDto({ note: file.note ?? null });
+  }
+
+  async updateNote(
+    fileId: string,
+    userId: string,
+    note: string,
+  ): Promise<FileNoteResponseDto> {
+    const existing = await this.prisma.file.findFirst({
+      where: {
+        id: fileId,
+        space: { ownerId: userId },
+      },
+      select: { id: true },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('File not found.');
+    }
+
+    const updated = await this.prisma.file.update({
+      where: { id: fileId },
+      data: { note },
+      select: { note: true },
+    });
+
+    return new FileNoteResponseDto({ note: updated.note ?? null });
+  }
+
+  async clearNote(fileId: string, userId: string): Promise<void> {
+    const existing = await this.prisma.file.findFirst({
+      where: {
+        id: fileId,
+        space: { ownerId: userId },
+      },
+      select: { id: true },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('File not found.');
+    }
+
+    await this.prisma.file.update({
+      where: { id: fileId },
+      data: { note: null },
+    });
   }
 
   async getUploadProgress(
@@ -474,7 +538,6 @@ export class FileService {
     return new FileResponseDto({
       id: file.id,
       spaceId: file.spaceId,
-      userId: file.userId,
       filename: file.filename,
       mimetype: file.mimetype,
       size: Number(file.size),
@@ -483,6 +546,7 @@ export class FileService {
       vectorStoreId: file.vectorStoreId ?? null,
       openAiFileId: file.openAiFileId ?? null,
       error: file.error ?? null,
+      note: file.note ?? null,
       uploadedAt: file.uploadedAt,
       updatedAt: file.updatedAt,
     });
@@ -537,21 +601,6 @@ export class FileService {
     throw new InternalServerErrorException(
       'File buffer is required for OpenAI ingestion.',
     );
-  }
-
-  private async resolveVectorStoreId(userId: string): Promise<string> {
-    const existing = await this.prisma.file.findFirst({
-      where: { userId, vectorStoreId: { not: null } },
-      orderBy: { uploadedAt: 'desc' },
-      select: { vectorStoreId: true },
-    });
-
-    if (existing?.vectorStoreId) {
-      return existing.vectorStoreId;
-    }
-
-    const name = `${VECTOR_STORE_NAME_PREFIX}-${userId}`;
-    return this.openAi.createVectorStore(name);
   }
 
   private async safeUpdateFileError(

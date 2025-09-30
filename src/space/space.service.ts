@@ -1,10 +1,12 @@
 import {
   BadRequestException,
   Injectable,
+  InternalServerErrorException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { Space, SpaceLogo } from '@prisma/client';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateSpaceDto } from './dto/create-space.dto';
 import {
@@ -12,7 +14,9 @@ import {
   SpaceResponseDto,
 } from './dto/space-response.dto';
 import { UpdateSpaceDto } from './dto/update-space.dto';
-import { normalizeName, normalizeSlug } from 'utils/helpers';
+import { normalizeName, normalizeSlug, formatError } from 'utils/helpers';
+import { OpenAiVectorStoreService } from '../openai/openai-vector-store.service';
+import { VECTOR_STORE_NAME_PREFIX } from 'config';
 
 type SpaceWithLogoMetadata = Space & {
   logo: Pick<SpaceLogo, 'contentType' | 'hash'> | null;
@@ -20,7 +24,12 @@ type SpaceWithLogoMetadata = Space & {
 
 @Injectable()
 export class SpaceService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(SpaceService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly openAi: OpenAiVectorStoreService,
+  ) {}
 
   private toSpaceResponse(space: SpaceWithLogoMetadata): SpaceResponseDto {
     return new SpaceResponseDto({
@@ -28,6 +37,7 @@ export class SpaceService {
       slug: space.slug,
       name: space.name,
       ownerId: space.ownerId,
+      vectorStoreId: space.vectorStoreId ?? null,
       createdAt: space.createdAt,
       updatedAt: space.updatedAt,
       logo: space.logo
@@ -43,16 +53,35 @@ export class SpaceService {
     ownerId: string,
     dto: CreateSpaceDto,
   ): Promise<SpaceResponseDto> {
-    const space = await this.prisma.space.create({
-      data: {
-        name: normalizeName(dto.name),
-        slug: normalizeSlug(dto.slug),
-        ownerId,
-      },
-      include: { logo: { select: { contentType: true, hash: true } } },
-    });
+    const normalizedName = normalizeName(dto.name);
+    const normalizedSlug = normalizeSlug(dto.slug);
+    const vectorStoreName = this.buildVectorStoreName(normalizedSlug);
 
-    return this.toSpaceResponse(space);
+    let vectorStoreId: string;
+    try {
+      vectorStoreId = await this.openAi.createVectorStore(vectorStoreName);
+    } catch (error) {
+      throw new InternalServerErrorException(
+        formatError('Failed to provision vector store for space', error),
+      );
+    }
+
+    try {
+      const space = await this.prisma.space.create({
+        data: {
+          name: normalizedName,
+          slug: normalizedSlug,
+          ownerId,
+          vectorStoreId,
+        },
+        include: { logo: { select: { contentType: true, hash: true } } },
+      });
+
+      return this.toSpaceResponse(space);
+    } catch (error) {
+      await this.cleanupVectorStore(vectorStoreId);
+      throw error;
+    }
   }
 
   async update(
@@ -89,6 +118,28 @@ export class SpaceService {
   }
 
   async delete(spaceId: string): Promise<void> {
+    const space = await this.prisma.space.findUnique({
+      where: { id: spaceId },
+      select: { vectorStoreId: true },
+    });
+
+    if (!space) {
+      throw new NotFoundException('Space not found.');
+    }
+
+    if (space.vectorStoreId) {
+      try {
+        await this.openAi.deleteVectorStore(space.vectorStoreId);
+      } catch (error) {
+        throw new InternalServerErrorException(
+          formatError(
+            'Failed to delete vector store associated with this space',
+            error,
+          ),
+        );
+      }
+    }
+
     await this.prisma.space.delete({ where: { id: spaceId } });
   }
 
@@ -145,5 +196,20 @@ export class SpaceService {
     });
 
     return space?.ownerId;
+  }
+
+  private buildVectorStoreName(slug: string): string {
+    const trimmedSlug = slug.slice(0, 40) || 'space';
+    return `${VECTOR_STORE_NAME_PREFIX}-${trimmedSlug}-${randomUUID()}`;
+  }
+
+  private async cleanupVectorStore(vectorStoreId: string): Promise<void> {
+    try {
+      await this.openAi.deleteVectorStore(vectorStoreId);
+    } catch (error) {
+      this.logger.warn(
+        `Failed to clean up vector store ${vectorStoreId}: ${error}`,
+      );
+    }
   }
 }

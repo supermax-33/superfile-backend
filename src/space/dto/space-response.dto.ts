@@ -16,6 +16,7 @@ export class SpaceResponseDto {
   slug!: string;
   name!: string;
   ownerId!: string;
+  vectorStoreId: string | null = null;
   createdAt!: Date;
   updatedAt!: Date;
   logo: SpaceLogoResponseDto | null = null;

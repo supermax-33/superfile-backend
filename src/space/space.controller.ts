@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Delete,
+  Get,
   HttpCode,
   HttpStatus,
   Param,
@@ -11,12 +12,11 @@ import {
   Put,
   Req,
   UploadedFile,
+  UnauthorizedException,
+  UseFilters,
   UseGuards,
   UseInterceptors,
-  UnauthorizedException,
   Version,
-  UseFilters,
-  Get,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Express } from 'express';
@@ -28,6 +28,7 @@ import { SpaceOwnerGuard } from './guards/space-owner.guard';
 import { SpaceService } from './space.service';
 import { JwtExceptionFilter } from 'src/auth/filters/jwt-exception.filter';
 import { RequestWithUser } from 'types';
+
 @Controller('spaces')
 export class SpaceController {
   constructor(private readonly spaceService: SpaceService) {}
