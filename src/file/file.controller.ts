@@ -23,15 +23,6 @@ import {
 import { Response } from 'express';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
-import {
-  ApiBearerAuth,
-  ApiBody,
-  ApiConsumes,
-  ApiNoContentResponse,
-  ApiOkResponse,
-  ApiOperation,
-  ApiTags,
-} from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { JwtExceptionFilter } from 'src/auth/filters/jwt-exception.filter';
 import { FileResponseDto } from './dto/file-response.dto';
@@ -65,9 +56,6 @@ const uploadInterceptor = FilesInterceptor(FILE_UPLOAD_FIELD, undefined, {
     );
   },
 });
-
-@ApiTags('files')
-@ApiBearerAuth()
 @Controller('files')
 @UseFilters(JwtExceptionFilter)
 @UseGuards(JwtAuthGuard)
@@ -85,22 +73,6 @@ export class FileController {
   @Version('1')
   @Post()
   @UseInterceptors(uploadInterceptor)
-  @ApiOperation({ summary: 'Upload files to a space' })
-  @ApiConsumes('multipart/form-data')
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        spaceId: { type: 'string', format: 'uuid' },
-        [FILE_UPLOAD_FIELD]: {
-          type: 'array',
-          items: { type: 'string', format: 'binary' },
-        },
-      },
-      required: ['spaceId', FILE_UPLOAD_FIELD],
-    },
-  })
-  @ApiOkResponse({ type: FileResponseDto, isArray: true })
   async upload(
     @Req() request: RequestWithUser,
     @Body() body: UploadFilesDto,
@@ -118,8 +90,6 @@ export class FileController {
 
   @Version('1')
   @Get()
-  @ApiOperation({ summary: 'List files for the authenticated user' })
-  @ApiOkResponse({ type: FileResponseDto, isArray: true })
   async list(
     @Query() query: ListFilesQueryDto,
     @Req() request: RequestWithUser,
@@ -131,7 +101,6 @@ export class FileController {
   @Version('1')
   @Get(':id')
   @UseGuards(FileOwnerGuard)
-  @ApiOperation({ summary: 'Download a file' })
   async download(
     @Param('id') fileId: string,
     @Req() request: RequestWithUser,
@@ -193,8 +162,6 @@ export class FileController {
   @Version('1')
   @Get(':id/progress')
   @UseGuards(FileOwnerGuard)
-  @ApiOperation({ summary: 'Get file upload progress' })
-  @ApiOkResponse({ type: FileProgressResponseDto })
   async progress(
     @Param('id') fileId: string,
     @Req() request: RequestWithUser,
@@ -206,8 +173,6 @@ export class FileController {
   @Version('1')
   @Patch(':id/status')
   @UseGuards(FileOwnerGuard)
-  @ApiOperation({ summary: 'Refresh file ingestion status' })
-  @ApiOkResponse({ type: FileResponseDto })
   async refreshStatus(
     @Param('id') fileId: string,
     @Req() request: RequestWithUser,
@@ -220,8 +185,6 @@ export class FileController {
   @Delete(':id')
   @UseGuards(FileOwnerGuard)
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Delete a file' })
-  @ApiNoContentResponse({ description: 'File deleted successfully.' })
   async remove(
     @Param('id') fileId: string,
     @Req() request: RequestWithUser,
