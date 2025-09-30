@@ -13,13 +13,9 @@ import { FileNoteResponseDto } from './dto/file-note-response.dto';
 import { ListFilesQueryDto } from './dto/list-files-query.dto';
 import { S3FileStorageService } from './s3-file-storage.service';
 import { FileProgressService } from './file-progress.service';
-import { OpenAiVectorStoreService } from './openai-vector-store.service';
+import { OpenAiVectorStoreService } from '../openai/openai-vector-store.service';
 import { FileProgressResponseDto } from './dto/file-progress-response.dto';
-import {
-  ALLOWED_MIME_TYPES,
-  MAX_FILE_SIZE_BYTES,
-  VECTOR_STORE_NAME_PREFIX,
-} from 'config';
+import { ALLOWED_MIME_TYPES, MAX_FILE_SIZE_BYTES } from 'config';
 import { buildS3Key, formatError, normalizeName } from 'utils/helpers';
 
 @Injectable()
@@ -43,7 +39,7 @@ export class FileService {
 
     const space = await this.prisma.space.findUnique({
       where: { id: spaceId },
-      select: { ownerId: true },
+      select: { ownerId: true, vectorStoreId: true },
     });
 
     if (!space) {
@@ -54,8 +50,12 @@ export class FileService {
       throw new ForbiddenException('You do not own the target space.');
     }
 
-    const vectorStoreId = await this.resolveVectorStoreId(userId);
-    await this.ensureUserVectorStoreId(userId, vectorStoreId);
+    const vectorStoreId = space.vectorStoreId;
+    if (!vectorStoreId) {
+      throw new BadRequestException(
+        'No vector store is configured for this space. Please recreate the space or contact support.',
+      );
+    }
 
     const responses: FileResponseDto[] = [];
 
@@ -446,45 +446,5 @@ export class FileService {
     throw new InternalServerErrorException(
       'File buffer is required for OpenAI ingestion.',
     );
-  }
-
-  private async resolveVectorStoreId(userId: string): Promise<string> {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { vectorStoreId: true },
-    });
-
-    if (user?.vectorStoreId) {
-      return user.vectorStoreId;
-    }
-
-    const existing = await this.prisma.file.findFirst({
-      where: {
-        vectorStoreId: { not: null },
-        space: { ownerId: userId },
-      },
-      orderBy: { uploadedAt: 'desc' },
-      select: { vectorStoreId: true },
-    });
-
-    if (existing?.vectorStoreId) {
-      await this.ensureUserVectorStoreId(userId, existing.vectorStoreId);
-      return existing.vectorStoreId;
-    }
-
-    const name = `${VECTOR_STORE_NAME_PREFIX}-${userId}`;
-    const created = await this.openAi.createVectorStore(name);
-    await this.ensureUserVectorStoreId(userId, created);
-    return created;
-  }
-
-  private async ensureUserVectorStoreId(
-    userId: string,
-    vectorStoreId: string,
-  ): Promise<void> {
-    await this.prisma.user.updateMany({
-      where: { id: userId, vectorStoreId: null },
-      data: { vectorStoreId },
-    });
   }
 }

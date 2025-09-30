@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { S3Client } from '@aws-sdk/client-s3';
-import OpenAI from 'openai';
 import { PrismaModule } from '../prisma/prisma.module';
+import { OpenAiModule } from '../openai/openai.module';
 import { FileController } from './file.controller';
 import { FileService } from './file.service';
 import { FileOwnerGuard } from './guards/file-owner.guard';
@@ -13,7 +13,7 @@ import { OPENAI_CLIENT_TOKEN, S3_CLIENT_TOKEN } from './file.tokens';
 import { FilePresignedUrlService } from './presigned-url.service';
 
 @Module({
-  imports: [PrismaModule, ConfigModule],
+  imports: [PrismaModule, ConfigModule, OpenAiModule],
   controllers: [FileController],
   providers: [
     FileService,
@@ -32,18 +32,6 @@ import { FilePresignedUrlService } from './presigned-url.service';
           throw new Error('AWS_S3_REGION or AWS_REGION must be configured');
 
         return new S3Client({ region });
-      },
-    },
-    {
-      provide: OPENAI_CLIENT_TOKEN,
-      inject: [ConfigService],
-      useFactory: (config: ConfigService) => {
-        const apiKey = config.get<string>('OPENAI_API_KEY');
-        if (!apiKey) {
-          throw new Error('OPENAI_API_KEY must be configured');
-        }
-
-        return new OpenAI({ apiKey });
       },
     },
   ],

@@ -56,7 +56,6 @@ const uploadInterceptor = FilesInterceptor(FILE_UPLOAD_FIELD, undefined, {
     );
   },
 });
-
 @Controller('files')
 @UseFilters(JwtExceptionFilter)
 @UseGuards(JwtAuthGuard)
