@@ -1,8 +1,11 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsUUID } from 'class-validator';
+import { IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 
 export class UploadFilesDto {
-  @ApiProperty({ format: 'uuid' })
   @IsUUID()
   spaceId!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  note?: string | null;
 }
