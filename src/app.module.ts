@@ -5,6 +5,7 @@ import { SpaceModule } from './space/space.module';
 import { SessionModule } from './sessions/session.module';
 import { FileModule } from './file/file.module';
 import { ConversationModule } from './conversation/conversation.module';
+import { ReminderModule } from './reminder/reminder.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { ConversationModule } from './conversation/conversation.module';
     SessionModule,
     FileModule,
     ConversationModule,
+    ReminderModule,
   ],
   controllers: [],
   providers: [],
