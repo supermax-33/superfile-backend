@@ -82,7 +82,7 @@ model Space {
 
 model SpaceLogo {
   id          String  @id @default(uuid())
-  spaceId     String  @unique
+  spaceId     String @unique
   data        Bytes?
   contentType String? @db.VarChar(255)
   hash        String? @db.VarChar(64)
@@ -107,7 +107,7 @@ model Session {
 
 model File {
   id            String     @id @default(uuid())
-  spaceId       String     @db.Uuid
+  spaceId       String     
   filename      String     @db.VarChar(1024)
   mimetype      String     @db.VarChar(255)
   size          BigInt     @db.BigInt
@@ -122,12 +122,12 @@ model File {
 
   space Space @relation(fields: [spaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
-  Reminder Reminder[] @relation("ReminderFiles")
+  Reminder Reminder[]
 }
 
 model Conversation {
   id                   String    @id @default(uuid())
-  spaceId              String    @db.Uuid
+  spaceId              String    
   title                String?   @db.VarChar(255)
   manuallyRenamed      Boolean   @default(false)
   autoTitleGeneratedAt DateTime?
@@ -145,7 +145,7 @@ enum ConversationRole {
 
 model ConversationMessage {
   id             String           @id @default(uuid())
-  conversationId String           @db.Uuid
+  conversationId String           
   role           ConversationRole @default(USER)
   content        String           @db.VarChar(8000)
   references     Json?
@@ -153,12 +153,12 @@ model ConversationMessage {
   createdAt      DateTime         @default(now())
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  reminders    Reminder[]   @relation("ReminderFiles")
+  reminders    Reminder[]
 }
 
 model Reminder {
   id        String   @id @default(uuid())
-  spaceId   String   @db.Uuid
+  spaceId   String   
   title     String
   note      String?
   remindAt  DateTime
@@ -166,7 +166,7 @@ model Reminder {
   updatedAt DateTime @updatedAt
 
   space Space  @relation(fields: [spaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  files File[] @relation("ReminderFiles")
+  files File[] 
 
-  ConversationMessage ConversationMessage[] @relation("ReminderFiles")
+  ConversationMessage ConversationMessage[]
 }
