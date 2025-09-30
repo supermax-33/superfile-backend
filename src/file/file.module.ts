@@ -10,6 +10,7 @@ import { FileProgressService } from './file-progress.service';
 import { S3FileStorageService } from './s3-file-storage.service';
 import { OpenAiVectorStoreService } from './openai-vector-store.service';
 import { OPENAI_CLIENT_TOKEN, S3_CLIENT_TOKEN } from './file.tokens';
+import { FilePresignedUrlService } from './presigned-url.service';
 
 @Module({
   imports: [PrismaModule, ConfigModule],
@@ -19,6 +20,7 @@ import { OPENAI_CLIENT_TOKEN, S3_CLIENT_TOKEN } from './file.tokens';
     FileOwnerGuard,
     FileProgressService,
     S3FileStorageService,
+    FilePresignedUrlService,
     OpenAiVectorStoreService,
     {
       provide: S3_CLIENT_TOKEN,
@@ -45,6 +47,6 @@ import { OPENAI_CLIENT_TOKEN, S3_CLIENT_TOKEN } from './file.tokens';
       },
     },
   ],
-  exports: [FileService],
+  exports: [FileService, FilePresignedUrlService, OPENAI_CLIENT_TOKEN],
 })
 export class FileModule {}

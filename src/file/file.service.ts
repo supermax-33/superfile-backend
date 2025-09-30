@@ -55,6 +55,7 @@ export class FileService {
     }
 
     const vectorStoreId = await this.resolveVectorStoreId(userId);
+    await this.ensureUserVectorStoreId(userId, vectorStoreId);
 
     const responses: FileResponseDto[] = [];
 
@@ -66,7 +67,6 @@ export class FileService {
       const record = await this.prisma.file.create({
         data: {
           spaceId,
-          userId,
           filename: normalizeName(file.originalname),
           mimetype: file.mimetype,
           size: BigInt(file.size),
@@ -383,7 +383,6 @@ export class FileService {
     return new FileResponseDto({
       id: file.id,
       spaceId: file.spaceId,
-      userId: file.userId,
       filename: file.filename,
       mimetype: file.mimetype,
       size: Number(file.size),
@@ -450,17 +449,42 @@ export class FileService {
   }
 
   private async resolveVectorStoreId(userId: string): Promise<string> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { vectorStoreId: true },
+    });
+
+    if (user?.vectorStoreId) {
+      return user.vectorStoreId;
+    }
+
     const existing = await this.prisma.file.findFirst({
-      where: { userId, vectorStoreId: { not: null } },
+      where: {
+        vectorStoreId: { not: null },
+        space: { ownerId: userId },
+      },
       orderBy: { uploadedAt: 'desc' },
       select: { vectorStoreId: true },
     });
 
     if (existing?.vectorStoreId) {
+      await this.ensureUserVectorStoreId(userId, existing.vectorStoreId);
       return existing.vectorStoreId;
     }
 
     const name = `${VECTOR_STORE_NAME_PREFIX}-${userId}`;
-    return this.openAi.createVectorStore(name);
+    const created = await this.openAi.createVectorStore(name);
+    await this.ensureUserVectorStoreId(userId, created);
+    return created;
+  }
+
+  private async ensureUserVectorStoreId(
+    userId: string,
+    vectorStoreId: string,
+  ): Promise<void> {
+    await this.prisma.user.updateMany({
+      where: { id: userId, vectorStoreId: null },
+      data: { vectorStoreId },
+    });
   }
 }

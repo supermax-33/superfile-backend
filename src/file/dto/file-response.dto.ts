@@ -7,7 +7,6 @@ export class FileResponseDto {
 
   id!: string;
   spaceId!: string;
-  userId!: string;
   filename!: string;
   mimetype!: string;
   size!: number;
