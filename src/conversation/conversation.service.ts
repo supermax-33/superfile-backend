@@ -151,9 +151,20 @@ export class ConversationService {
           },
         });
 
+        const space = await this.prisma.space.findUnique({
+          where: { id: spaceId },
+          select: { vectorStoreId: true },
+        });
+
+        if (!space) {
+          throw new NotFoundException('Space not found.');
+        }
+
+        const { vectorStoreId } = space;
+
         const shouldDecline = await this.shouldDeclineAssistantResponse(
-          userId,
           spaceId,
+          vectorStoreId,
         );
         if (shouldDecline) {
           const assistantMessage = await this.prisma.conversationMessage.create(
@@ -180,14 +191,9 @@ export class ConversationService {
           return;
         }
 
-        const user = await this.prisma.user.findUnique({
-          where: { id: userId },
-          select: { vectorStoreId: true },
-        });
-
-        if (!user?.vectorStoreId) {
+        if (!vectorStoreId) {
           throw new InternalServerErrorException(
-            'Vector store identifier is missing for the user.',
+            'Vector store identifier is missing for the space.',
           );
         }
 
@@ -208,7 +214,7 @@ export class ConversationService {
           tools: [
             {
               type: 'file_search',
-              vector_store_ids: [user.vectorStoreId],
+              vector_store_ids: [vectorStoreId],
             } as any,
           ],
           include: ['file_search_call.results'],
@@ -306,15 +312,10 @@ export class ConversationService {
   }
 
   private async shouldDeclineAssistantResponse(
-    userId: string,
     spaceId: string,
+    vectorStoreId: string | null,
   ): Promise<boolean> {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { vectorStoreId: true },
-    });
-
-    if (!user?.vectorStoreId) {
+    if (!vectorStoreId) {
       return true;
     }
 
