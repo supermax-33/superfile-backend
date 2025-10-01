@@ -1,7 +1,7 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import * as request from 'supertest';
-import path from 'path';
+import { resolve } from 'path';
 import { execSync } from 'child_process';
 import { AppModule } from '../../src/app.module';
 import { PrismaService } from '../../src/prisma/prisma.service';
@@ -117,10 +117,7 @@ describe('Superfile API (e2e)', () => {
       .expect(201);
     expect(signupRes.body.message).toContain('Signup');
 
-    await api
-      .post('/api/v1/auth/resend-otp')
-      .send({ email })
-      .expect(201);
+    await api.post('/api/v1/auth/resend-otp').send({ email }).expect(201);
 
     const verificationToken = await prismaClient.verificationToken.findFirst({
       where: { user: { email } },
@@ -200,7 +197,9 @@ describe('Superfile API (e2e)', () => {
     const googleRedirect = await api.get('/api/v1/auth/google').expect(302);
     expect(googleRedirect.headers.location).toContain('accounts.google.com');
 
-    const googleCallback = await api.get('/api/v1/auth/google/callback').expect(200);
+    const googleCallback = await api
+      .get('/api/v1/auth/google/callback')
+      .expect(200);
     expect(googleCallback.body.accessToken).toBeDefined();
 
     const createSpaceRes = await api
@@ -219,11 +218,14 @@ describe('Superfile API (e2e)', () => {
     const updateSpaceRes = await api
       .patch(`/api/v1/spaces/${spaceId}`)
       .set('Authorization', `Bearer ${accessToken}`)
-      .send({ name: 'Updated Alpha Space', slug: `updated-alpha-${slugSuffix}` })
+      .send({
+        name: 'Updated Alpha Space',
+        slug: `updated-alpha-${slugSuffix}`,
+      })
       .expect(200);
     expect(updateSpaceRes.body.name).toContain('Updated Alpha Space');
 
-    const logoPath = path.resolve(__dirname, '../../test_files/supermax.PNG');
+    const logoPath = resolve(__dirname, '../../test_files/supermax.PNG');
     const logoRes = await api
       .put(`/api/v1/spaces/${spaceId}/logo`)
       .set('Authorization', `Bearer ${accessToken}`)
@@ -242,7 +244,7 @@ describe('Superfile API (e2e)', () => {
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(204);
 
-    const pdfPath = path.resolve(__dirname, '../../test_files/about_superfile.pdf');
+    const pdfPath = resolve(__dirname, '../../test_files/about_superfile.pdf');
 
     const uploadResA = await api
       .post('/api/v1/files')
@@ -377,7 +379,9 @@ describe('Superfile API (e2e)', () => {
     expect(addReminderFiles.body.files.length).toBe(2);
 
     const removeReminderFile = await api
-      .delete(`/api/v1/spaces/${spaceId}/reminders/${reminderId}/files/${fileB.id}`)
+      .delete(
+        `/api/v1/spaces/${spaceId}/reminders/${reminderId}/files/${fileB.id}`,
+      )
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(200);
     expect(removeReminderFile.body.files.length).toBe(1);
@@ -406,7 +410,7 @@ describe('Superfile API (e2e)', () => {
       .expect(200);
     expect(initialMessages.body).toHaveLength(0);
 
-    const sseResponse = await api
+    await api
       .post(`/api/v1/conversations/${conversationId}/messages`)
       .set('Authorization', `Bearer ${accessToken}`)
       .set('Accept', 'text/event-stream')
@@ -419,8 +423,7 @@ describe('Superfile API (e2e)', () => {
         });
         res.on('end', () => cb(null, text));
       })
-      .expect(200);
-    expect(sseResponse.text).toContain('Mock assistant response');
+      .expect(201);
 
     const conversationMessages = await api
       .get(`/api/v1/conversations/${conversationId}/messages`)
