@@ -193,6 +193,14 @@ When the delete call succeeds the record is removed from Prisma, the object is p
 
 ---
 
+## End-to-end Test Modes
+
+- Run `pnpm test:e2e` to exercise the happy-path workflow with in-memory fakes for S3 uploads, OpenAI vector stores, and streaming (fast, deterministic).
+- Set `E2E_REAL_INTEGRATIONS=true pnpm test:e2e` to hit your configured AWS and OpenAI accounts. Ensure `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `AWS_S3_BUCKET`, and `OPENAI_API_KEY` are present in `.env`.
+- Add `E2E_PERSIST_DATA=true` alongside the real integrations flag when you want the suite to leave behind inspection data (spaces, files, reminders, conversations) and emit rich logs for manual verification.
+
+---
+
 # Testing the Reminders API
 
 Reminders are scoped to a space and surfaced under `/v1/spaces/:spaceId/reminders`. All calls require the bearer token from the authentication flow as well as the UUID of a space the caller owns.
