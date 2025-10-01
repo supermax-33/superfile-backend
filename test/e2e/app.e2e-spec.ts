@@ -1,5 +1,5 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+import { Test, TestingModuleBuilder } from '@nestjs/testing';
 import * as request from 'supertest';
 import { resolve } from 'path';
 import { execSync } from 'child_process';
@@ -20,6 +20,15 @@ import {
   FakeGoogleOAuthGuard,
 } from './support/fakes';
 
+const useRealIntegrations = process.env.E2E_REAL_INTEGRATIONS === 'true';
+const persistE2EData = process.env.E2E_PERSIST_DATA === 'true';
+const shouldLog = persistE2EData || useRealIntegrations;
+const persistLog = (...args: unknown[]) => {
+  if (shouldLog) {
+    console.log('[E2E Persist]', ...args);
+  }
+};
+
 jest.mock('google-auth-library', () => {
   return {
     OAuth2Client: jest.fn().mockImplementation(() => ({
@@ -34,6 +43,18 @@ jest.mock('google-auth-library', () => {
     })),
   };
 });
+
+if (persistE2EData) {
+  persistLog(
+    'Persistence mode enabled. Created resources will remain after this run.',
+  );
+}
+
+if (useRealIntegrations) {
+  console.log(
+    '[E2E] Real integrations enabled. S3 uploads, OpenAI vector stores, and assistant replies will hit live services.',
+  );
+}
 
 describe('Superfile API (e2e)', () => {
   let app: INestApplication;
@@ -53,22 +74,29 @@ describe('Superfile API (e2e)', () => {
 
     execSync('npx prisma migrate deploy', { stdio: 'inherit' });
 
-    const moduleRef = await Test.createTestingModule({
+    let moduleBuilder: TestingModuleBuilder = Test.createTestingModule({
       imports: [AppModule],
     })
       .overrideProvider(MailService)
-      .useValue(mailService)
-      .overrideProvider(S3FileStorageService)
-      .useValue(s3Storage)
-      .overrideProvider(OpenAiVectorStoreService)
-      .useValue(vectorStore)
-      .overrideProvider(FilePresignedUrlService)
-      .useValue(fileUrls)
-      .overrideProvider(OPENAI_CLIENT_TOKEN)
-      .useValue(openAiClient)
+      .useValue(mailService);
+
+    if (!useRealIntegrations) {
+      moduleBuilder = moduleBuilder
+        .overrideProvider(S3FileStorageService)
+        .useValue(s3Storage)
+        .overrideProvider(OpenAiVectorStoreService)
+        .useValue(vectorStore)
+        .overrideProvider(FilePresignedUrlService)
+        .useValue(fileUrls)
+        .overrideProvider(OPENAI_CLIENT_TOKEN)
+        .useValue(openAiClient);
+    }
+
+    moduleBuilder = moduleBuilder
       .overrideGuard(GoogleOAuthGuard)
-      .useValue(new FakeGoogleOAuthGuard())
-      .compile();
+      .useValue(new FakeGoogleOAuthGuard());
+
+    const moduleRef = await moduleBuilder.compile();
 
     app = moduleRef.createNestApplication();
     app.useGlobalPipes(
@@ -97,6 +125,8 @@ describe('Superfile API (e2e)', () => {
     await prismaClient.passwordResetToken?.deleteMany?.();
     await prismaClient.verificationToken?.deleteMany?.();
     await prismaClient.user?.deleteMany?.();
+
+    persistLog('Database cleaned prior to e2e workflow.');
   });
 
   afterAll(async () => {
@@ -209,6 +239,7 @@ describe('Superfile API (e2e)', () => {
       .expect(201);
     const spaceId = createSpaceRes.body.id as string;
     expect(spaceId).toBeDefined();
+    persistLog('Primary space created for workflow', { spaceId, slugSuffix });
 
     await api
       .get(`/api/v1/spaces/${spaceId}`)
@@ -255,6 +286,7 @@ describe('Superfile API (e2e)', () => {
       .expect(201);
     const fileA = uploadResA.body[0];
     expect(fileA.status).toBe('SUCCESS');
+    persistLog('Uploaded initial file', { fileId: fileA.id, spaceId });
 
     const uploadResB = await api
       .post('/api/v1/files')
@@ -263,6 +295,7 @@ describe('Superfile API (e2e)', () => {
       .attach('files', pdfPath)
       .expect(201);
     const fileB = uploadResB.body[0];
+    persistLog('Uploaded secondary file', { fileId: fileB.id });
 
     const uploadResC = await api
       .post('/api/v1/files')
@@ -271,6 +304,7 @@ describe('Superfile API (e2e)', () => {
       .attach('files', pdfPath)
       .expect(201);
     const fileC = uploadResC.body[0];
+    persistLog('Uploaded tertiary file', { fileId: fileC.id });
 
     const listFilesRes = await api
       .get('/api/v1/files')
@@ -347,6 +381,7 @@ describe('Superfile API (e2e)', () => {
       .expect(201);
     const reminderId = createReminderRes.body.id as string;
     expect(createReminderRes.body.files).toHaveLength(1);
+    persistLog('Reminder created', { reminderId, remindAt });
 
     const listReminders = await api
       .get(`/api/v1/spaces/${spaceId}/reminders`)
@@ -397,6 +432,7 @@ describe('Superfile API (e2e)', () => {
       .send({ title: 'Planning conversation' })
       .expect(201);
     const conversationId = createConversationRes.body.id as string;
+    persistLog('Conversation created', { conversationId });
 
     const listConversationsRes = await api
       .get(`/api/v1/spaces/${spaceId}/conversations`)
@@ -424,6 +460,7 @@ describe('Superfile API (e2e)', () => {
         res.on('end', () => cb(null, text));
       })
       .expect(201);
+    persistLog('Conversation message streamed for inspection workflow');
 
     const conversationMessages = await api
       .get(`/api/v1/conversations/${conversationId}/messages`)
@@ -433,10 +470,20 @@ describe('Superfile API (e2e)', () => {
     const assistantMessage = conversationMessages.body.find(
       (message: any) => message.role === 'ASSISTANT',
     );
-    expect(assistantMessage.content).toContain('Mock assistant response');
-    expect(assistantMessage.references.files[0].downloadUrl).toContain(
-      'files.example.com',
-    );
+    expect(assistantMessage).toBeDefined();
+    expect(assistantMessage.content).toBeTruthy();
+    const assistantDownloadUrl =
+      assistantMessage.references?.files?.[0]?.downloadUrl;
+    expect(assistantDownloadUrl).toBeDefined();
+    if (useRealIntegrations) {
+      expect(assistantDownloadUrl).toMatch(/^https?:\/\//);
+    } else {
+      expect(assistantDownloadUrl).toContain('files.example.com');
+    }
+    persistLog('Assistant message stored', {
+      conversationId,
+      assistantMessage,
+    });
 
     await api
       .delete(`/api/v1/conversations/${conversationId}`)
@@ -481,5 +528,88 @@ describe('Superfile API (e2e)', () => {
       .delete(`/api/v1/spaces/${spaceId}`)
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(204);
+
+    if (persistE2EData) {
+      persistLog(
+        'Rebuilding inspection dataset after primary workflow cleanup.',
+      );
+      const inspectSlug = `inspect-${slugSuffix}`;
+      const inspectSpaceRes = await api
+        .post('/api/v1/spaces')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ name: 'Inspection Space', slug: inspectSlug })
+        .expect(201);
+      const inspectSpaceId = inspectSpaceRes.body.id as string;
+      persistLog('Inspection space created', { inspectSpaceId, inspectSlug });
+
+      await api
+        .put(`/api/v1/spaces/${inspectSpaceId}/logo`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .attach('file', logoPath)
+        .expect(200);
+      persistLog('Inspection space logo uploaded');
+
+      const inspectUpload = await api
+        .post('/api/v1/files')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .field('spaceId', inspectSpaceId)
+        .field('note', 'Persisted note for inspection')
+        .attach('files', pdfPath)
+        .expect(201);
+      const inspectFile = inspectUpload.body[0];
+      persistLog('Inspection file uploaded', {
+        fileId: inspectFile.id,
+        s3Key: inspectFile.s3Key,
+        openAiFileId: inspectFile.openAiFileId,
+        vectorStoreId: inspectFile.vectorStoreId,
+      });
+
+      const inspectReminderRes = await api
+        .post(`/api/v1/spaces/${inspectSpaceId}/reminders`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          title: 'Inspection reminder',
+          note: 'Persisted reminder for manual inspection',
+          remindAt,
+          fileIds: [inspectFile.id],
+        })
+        .expect(201);
+      const inspectReminderId = inspectReminderRes.body.id as string;
+      persistLog('Inspection reminder created', { inspectReminderId });
+
+      const inspectConversationRes = await api
+        .post(`/api/v1/spaces/${inspectSpaceId}/conversations`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ title: 'Inspection conversation' })
+        .expect(201);
+      const inspectConversationId = inspectConversationRes.body.id as string;
+      persistLog('Inspection conversation created', { inspectConversationId });
+
+      await api
+        .post(`/api/v1/conversations/${inspectConversationId}/messages`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .set('Accept', 'text/event-stream')
+        .send({ content: 'Persist this assistant exchange.' })
+        .buffer(true)
+        .parse((res, cb) => {
+          let text = '';
+          res.on('data', (chunk: Buffer) => {
+            text += chunk.toString();
+          });
+          res.on('end', () => cb(null, text));
+        })
+        .expect(201);
+      persistLog('Inspection conversation message streamed');
+
+      persistLog('Inspection dataset ready for manual review', {
+        inspectSpaceId,
+        fileId: inspectFile.id,
+        s3Key: inspectFile.s3Key,
+        openAiFileId: inspectFile.openAiFileId,
+        vectorStoreId: inspectFile.vectorStoreId,
+        inspectReminderId,
+        inspectConversationId,
+      });
+    }
   });
 });
