@@ -450,7 +450,7 @@ describe('Superfile API (e2e)', () => {
       .post(`/api/v1/conversations/${conversationId}/messages`)
       .set('Authorization', `Bearer ${accessToken}`)
       .set('Accept', 'text/event-stream')
-      .send({ content: 'How should I plan?' })
+      .send({ content: 'What is superfile?' })
       .buffer(true)
       .parse((res, cb) => {
         let text = '';
