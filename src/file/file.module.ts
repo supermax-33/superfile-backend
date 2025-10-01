@@ -3,7 +3,12 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { S3Client } from '@aws-sdk/client-s3';
 import { PrismaModule } from '../prisma/prisma.module';
 import { OpenAiModule } from '../openai/openai.module';
+import { MailModule } from '../mail/mail.module';
 import { FileController } from './file.controller';
+import {
+  FileShareController,
+  PublicFileShareController,
+} from './file-share.controller';
 import { FileService } from './file.service';
 import { FileOwnerGuard } from './guards/file-owner.guard';
 import { FileProgressService } from './file-progress.service';
@@ -11,10 +16,11 @@ import { S3FileStorageService } from './s3-file-storage.service';
 import { OpenAiVectorStoreService } from './openai-vector-store.service';
 import { S3_CLIENT_TOKEN } from './file.tokens';
 import { FilePresignedUrlService } from './presigned-url.service';
+import { FileShareService } from './file-share.service';
 
 @Module({
-  imports: [PrismaModule, ConfigModule, OpenAiModule],
-  controllers: [FileController],
+  imports: [PrismaModule, ConfigModule, OpenAiModule, MailModule],
+  controllers: [FileController, FileShareController, PublicFileShareController],
   providers: [
     FileService,
     FileOwnerGuard,
@@ -22,6 +28,7 @@ import { FilePresignedUrlService } from './presigned-url.service';
     S3FileStorageService,
     FilePresignedUrlService,
     OpenAiVectorStoreService,
+    FileShareService,
     {
       provide: S3_CLIENT_TOKEN,
       inject: [ConfigService],
@@ -35,6 +42,6 @@ import { FilePresignedUrlService } from './presigned-url.service';
       },
     },
   ],
-  exports: [FileService, FilePresignedUrlService],
+  exports: [FileService, FilePresignedUrlService, FileShareService],
 })
 export class FileModule {}

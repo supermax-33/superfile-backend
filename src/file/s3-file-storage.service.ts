@@ -11,7 +11,6 @@ import { Readable } from 'node:stream';
 import { S3_CLIENT_TOKEN } from './file.tokens';
 import { ConfigService } from '@nestjs/config';
 import { DownloadResult, UploadParams } from 'types';
-import { createHash } from 'node:crypto';
 
 @Injectable()
 export class S3FileStorageService {
@@ -118,5 +117,4 @@ export class S3FileStorageService {
       return false;
     }
   }
-
 }

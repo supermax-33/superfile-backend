@@ -13,8 +13,10 @@ type VectorStoreRecord = {
 };
 
 export class FakeMailService {
-  public readonly verificationEmails: Array<{ email: string; code: string }> = [];
-  public readonly passwordResetEmails: Array<{ email: string; code: string }> = [];
+  public readonly verificationEmails: Array<{ email: string; code: string }> =
+    [];
+  public readonly passwordResetEmails: Array<{ email: string; code: string }> =
+    [];
 
   async sendVerificationEmail(email: string, code: string) {
     this.verificationEmails.push({ email, code });
@@ -102,13 +104,20 @@ export class FakeOpenAiVectorStoreService {
   async uploadFile(
     vectorStoreId: string,
     file: { buffer: Buffer; filename: string; mimetype: string },
-  ): Promise<{ fileId: string; vectorStoreFileId: string; status: 'completed' }> {
+  ): Promise<{
+    fileId: string;
+    vectorStoreFileId: string;
+    status: 'completed';
+  }> {
     const store = this.stores.get(vectorStoreId);
     if (!store) {
       throw new Error(`Unknown vector store ${vectorStoreId}`);
     }
     const fileId = `openai-file-${++this.fileCounter}`;
-    store.files.set(fileId, { buffer: file.buffer, contentType: file.mimetype });
+    store.files.set(fileId, {
+      buffer: file.buffer,
+      contentType: file.mimetype,
+    });
     return {
       fileId,
       vectorStoreFileId: `vsf-${fileId}`,
@@ -142,7 +151,9 @@ class FakeResponseStream extends EventEmitter {
   constructor(private readonly fileIds: string[]) {
     super();
     setImmediate(() => {
-      this.emit('response.output_text.delta', { delta: 'Mock assistant response.' });
+      this.emit('response.output_text.delta', {
+        delta: 'Mock assistant response.',
+      });
       setTimeout(() => {
         this.emit('response.completed');
       }, 5);

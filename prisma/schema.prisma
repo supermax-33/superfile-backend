@@ -134,12 +134,29 @@ model File {
   updatedAt     DateTime   @updatedAt
 
   Reminder Reminder[]
+  shares   FileShare[]
 
   space Space @relation(fields: [spaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   @@index([spaceId, status])
   @@index([spaceId, uploadedAt])
   @@index([spaceId, openAiFileId])
+}
+
+model FileShare {
+  id         String   @id @default(uuid())
+  fileId     String   @db.Uuid
+  spaceId    String   @db.Uuid
+  shareToken String   @unique
+  expiresAt  DateTime?
+  note       String?  @db.VarChar(1024)
+  createdAt  DateTime @default(now())
+
+  file  File  @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  space Space @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+
+  @@index([fileId, spaceId])
+  @@index([spaceId])
 }
 
 model Conversation {

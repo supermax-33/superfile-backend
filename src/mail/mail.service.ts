@@ -18,4 +18,52 @@ export class MailService {
     await this.resendService.sendEmail(email, subject, html);
     return true;
   }
+
+  async sendFileShareEmail(
+    email: string,
+    link: string,
+    filename: string,
+    note: string | null,
+    expiresAt: Date | null,
+  ): Promise<void> {
+    const subject = `A file has been shared with you`;
+    const safeFilename = this.escapeHtml(filename);
+    const safeLink = this.escapeHtml(link);
+    const parts: string[] = [
+      `<p>The file <strong>${safeFilename}</strong> has been shared with you.</p>`,
+      `<p>You can access it securely using the link below:</p>`,
+      `<p><a href="${safeLink}">${safeLink}</a></p>`,
+    ];
+
+    if (expiresAt) {
+      parts.push(
+        `<p>This link will expire on <strong>${expiresAt.toUTCString()}</strong>.</p>`,
+      );
+    }
+
+    if (note) {
+      parts.push(
+        `<p><strong>Note from the sender:</strong><br/>${this.formatNote(note)}</p>`,
+      );
+    }
+
+    parts.push(
+      '<p>If you were not expecting this file, you can safely ignore this email.</p>',
+    );
+
+    await this.resendService.sendEmail(email, subject, parts.join(''));
+  }
+
+  private escapeHtml(input: string): string {
+    return input
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  private formatNote(note: string): string {
+    return this.escapeHtml(note).replace(/\n/g, '<br/>');
+  }
 }
