@@ -106,6 +106,19 @@ CREATE TABLE "public"."File" (
 );
 
 -- CreateTable
+CREATE TABLE "public"."FileShare" (
+    "id" TEXT NOT NULL,
+    "fileId" TEXT NOT NULL,
+    "spaceId" TEXT NOT NULL,
+    "shareToken" TEXT NOT NULL,
+    "expiresAt" TIMESTAMP(3),
+    "note" VARCHAR(1024),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "FileShare_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "public"."Conversation" (
     "id" TEXT NOT NULL,
     "spaceId" TEXT NOT NULL,
@@ -197,6 +210,15 @@ CREATE INDEX "File_spaceId_uploadedAt_idx" ON "public"."File"("spaceId", "upload
 CREATE INDEX "File_spaceId_openAiFileId_idx" ON "public"."File"("spaceId", "openAiFileId");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "FileShare_shareToken_key" ON "public"."FileShare"("shareToken");
+
+-- CreateIndex
+CREATE INDEX "FileShare_fileId_spaceId_idx" ON "public"."FileShare"("fileId", "spaceId");
+
+-- CreateIndex
+CREATE INDEX "FileShare_spaceId_idx" ON "public"."FileShare"("spaceId");
+
+-- CreateIndex
 CREATE INDEX "Conversation_spaceId_createdAt_idx" ON "public"."Conversation"("spaceId", "createdAt");
 
 -- CreateIndex
@@ -228,6 +250,12 @@ ALTER TABLE "public"."Session" ADD CONSTRAINT "Session_userId_fkey" FOREIGN KEY 
 
 -- AddForeignKey
 ALTER TABLE "public"."File" ADD CONSTRAINT "File_spaceId_fkey" FOREIGN KEY ("spaceId") REFERENCES "public"."Space"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "public"."FileShare" ADD CONSTRAINT "FileShare_fileId_fkey" FOREIGN KEY ("fileId") REFERENCES "public"."File"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "public"."FileShare" ADD CONSTRAINT "FileShare_spaceId_fkey" FOREIGN KEY ("spaceId") REFERENCES "public"."Space"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "public"."Conversation" ADD CONSTRAINT "Conversation_spaceId_fkey" FOREIGN KEY ("spaceId") REFERENCES "public"."Space"("id") ON DELETE CASCADE ON UPDATE CASCADE;
