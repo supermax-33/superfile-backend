@@ -25,7 +25,6 @@ import { FilesInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { JwtExceptionFilter } from 'src/auth/filters/jwt-exception.filter';
-import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { FileResponseDto } from './dto/file-response.dto';
 import { FileNoteResponseDto } from './dto/file-note-response.dto';
 import { ListFilesQueryDto } from './dto/list-files-query.dto';
@@ -68,7 +67,6 @@ const uploadInterceptor = FilesInterceptor(FILE_UPLOAD_FIELD, undefined, {
 @Controller('files')
 @UseFilters(JwtExceptionFilter)
 @UseGuards(JwtAuthGuard)
-@ApiTags('files')
 export class FileController {
   constructor(private readonly fileService: FileService) {}
 
@@ -194,8 +192,6 @@ export class FileController {
   @Version('1')
   @Delete()
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Delete multiple files.' })
-  @ApiResponse({ status: HttpStatus.OK, type: BatchDeleteFilesResponseDto })
   async removeMany(
     @Req() request: RequestWithUser,
     @Body() body: BatchDeleteFilesDto,
@@ -207,11 +203,6 @@ export class FileController {
   @Version('1')
   @Post('download')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Generate download URLs for multiple files.' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    type: BatchDownloadFilesResponseDto,
-  })
   async downloadMany(
     @Req() request: RequestWithUser,
     @Body() body: BatchDownloadFilesDto,

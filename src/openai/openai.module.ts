@@ -21,6 +21,6 @@ import { OPENAI_CLIENT_TOKEN } from './openai.tokens';
       },
     },
   ],
-  exports: [OpenAiVectorStoreService],
+  exports: [OpenAiVectorStoreService, OPENAI_CLIENT_TOKEN],
 })
 export class OpenAiModule {}

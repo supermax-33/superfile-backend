@@ -23,7 +23,7 @@ import {
   ConversationMessageResponseDto,
 } from './dto/conversation-message-response.dto';
 import { FilePresignedUrlService } from '../file/presigned-url.service';
-import { OPENAI_CLIENT_TOKEN } from '../file/file.tokens';
+import { OPENAI_CLIENT_TOKEN } from '../openai/openai.tokens';
 
 const FALLBACK_NO_FILES_MESSAGE =
   'No files are present to answer your question. Please upload files first.';
@@ -385,8 +385,18 @@ export class ConversationService {
       content: message.content,
       createdAt: message.createdAt,
       references,
-      actions: message.actions ?? null,
+      actions: this.parseActions(message.actions),
     });
+  }
+
+  private parseActions(
+    actions: Prisma.JsonValue | null,
+  ): Record<string, unknown> | null {
+    if (!actions || typeof actions !== 'object' || Array.isArray(actions)) {
+      return null;
+    }
+
+    return actions as Record<string, unknown>;
   }
 
   private async hydrateReferences(
