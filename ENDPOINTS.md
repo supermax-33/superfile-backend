@@ -491,6 +491,104 @@ Generates short-lived download URLs for multiple files.
 - `404 Not Found` when any requested file is missing or not owned by the user.
 - `500 Internal Server Error` if a presigned URL cannot be generated.
 
+### `POST /api/v1/files/:id/share`
+Creates a new public share link for a file you own. The optional expiry must be in the future and notes are trimmed to at most 1024 characters.【F:src/file/dto/create-file-share.dto.ts†L4-L11】
+
+**Request**
+```json
+{
+  "expiresAt": "2024-05-05T12:00:00.000Z",
+  "note": "Share with design team"
+}
+```
+
+**Response**
+```json
+{
+  "id": "8c14d3e2-6fb3-4826-91d1-4c31e6ad0509",
+  "fileId": "2b1a2d6b-3cf6-4c3e-98fc-5a7a5a2c4e11",
+  "spaceId": "d1c5e7f0-28cc-49ec-9f42-5b25a38c56c7",
+  "shareToken": "6f5c3d9a2b1c4e7f8a9b0c1d2e3f4a5b",
+  "url": "https://app.superfile.com/share/6f5c3d9a2b1c4e7f8a9b0c1d2e3f4a5b",
+  "note": "Share with design team",
+  "expiresAt": "2024-05-05T12:00:00.000Z",
+  "createdAt": "2024-05-02T12:00:00.000Z"
+}
+```
+
+**Error states**
+- `404 Not Found` if the file is missing or not owned by the caller.
+- `400 Bad Request` when the expiration is invalid or not in the future.
+
+### `GET /api/v1/files/:id/shares`
+Lists active (non-expired) share links for the file in newest-first order.
+
+**Example Response**
+```json
+[
+  {
+    "id": "8c14d3e2-6fb3-4826-91d1-4c31e6ad0509",
+    "fileId": "2b1a2d6b-3cf6-4c3e-98fc-5a7a5a2c4e11",
+    "spaceId": "d1c5e7f0-28cc-49ec-9f42-5b25a38c56c7",
+    "shareToken": "6f5c3d9a2b1c4e7f8a9b0c1d2e3f4a5b",
+    "url": "https://app.superfile.com/share/6f5c3d9a2b1c4e7f8a9b0c1d2e3f4a5b",
+    "note": "Share with design team",
+    "expiresAt": "2024-05-05T12:00:00.000Z",
+    "createdAt": "2024-05-02T12:00:00.000Z"
+  }
+]
+```
+
+**Error states**
+- `404 Not Found` if the file does not exist or is not owned by the caller.
+
+### `DELETE /api/v1/files/:id/shares/:shareId`
+Revokes a share link. Returns `204 No Content`.
+
+**Error states**
+- `404 Not Found` if the share id is unknown for that file or the file is not owned by the user.
+
+### `POST /api/v1/files/:id/share/email`
+Sends the share link via email to a specific recipient using the configured mail provider.【F:src/file/dto/send-file-share-email.dto.ts†L4-L8】 Requires the share to be active (not expired).
+
+**Request**
+```json
+{
+  "shareId": "8c14d3e2-6fb3-4826-91d1-4c31e6ad0509",
+  "recipientEmail": "sam@example.com"
+}
+```
+
+**Response**
+Empty body with status `204 No Content`.
+
+**Error states**
+- `404 Not Found` if the share does not exist for that file or the file is not owned by the user.
+- `400 Bad Request` when attempting to send an expired share link.
+
+### `GET /api/v1/share/:shareToken`
+Public endpoint that resolves a share token and returns a time-limited download URL plus metadata. No authentication required.
+
+**Response**
+```json
+{
+  "id": "8c14d3e2-6fb3-4826-91d1-4c31e6ad0509",
+  "fileId": "2b1a2d6b-3cf6-4c3e-98fc-5a7a5a2c4e11",
+  "spaceId": "d1c5e7f0-28cc-49ec-9f42-5b25a38c56c7",
+  "shareToken": "6f5c3d9a2b1c4e7f8a9b0c1d2e3f4a5b",
+  "filename": "design-doc.pdf",
+  "mimetype": "application/pdf",
+  "size": 523445,
+  "url": "https://s3.superfile.com/presigned",
+  "note": "Share with design team",
+  "expiresAt": "2024-05-05T12:00:00.000Z",
+  "createdAt": "2024-05-02T12:00:00.000Z"
+}
+```
+
+**Error states**
+- `404 Not Found` if the share token is invalid or the link has expired.
+
 ### `DELETE /api/v1/files/:id`
 Deletes a single file, removing S3 and OpenAI artifacts. Returns `204 No Content`.
 
