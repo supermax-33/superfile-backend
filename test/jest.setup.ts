@@ -45,12 +45,3 @@ process.env.RESEND_API_KEY = process.env.RESEND_API_KEY ?? 'test-resend-key';
 process.env.AWS_S3_BUCKET = process.env.AWS_S3_BUCKET ?? 'test-bucket';
 process.env.AWS_REGION = process.env.AWS_REGION ?? 'us-east-1';
 process.env.OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? 'test-openai-key';
-
-jest.mock(
-  '@nestjs/swagger',
-  () => ({
-    ApiTags: () => () => undefined,
-    ApiOperation: () => () => undefined,
-  }),
-  { virtual: true },
-);

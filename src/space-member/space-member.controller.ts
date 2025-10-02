@@ -15,7 +15,6 @@ import {
   Version,
   UnauthorizedException,
 } from '@nestjs/common';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { SpaceRole } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { JwtExceptionFilter } from '../auth/filters/jwt-exception.filter';
@@ -27,7 +26,6 @@ import { UpdateSpaceMemberDto } from './dto/update-space-member.dto';
 import { RequireSpaceRole } from './decorators/require-space-role.decorator';
 import { SpaceRoleGuard } from './guards/space-role.guard';
 
-@ApiTags('space-members')
 @Controller('spaces/:spaceId/members')
 @UseFilters(JwtExceptionFilter)
 @UseGuards(JwtAuthGuard, SpaceRoleGuard)
@@ -45,10 +43,6 @@ export class SpaceMemberController {
   @Version('1')
   @Get()
   @RequireSpaceRole(SpaceRole.OWNER, { spaceIdParam: 'spaceId' })
-  @ApiOperation({
-    summary: 'List space members',
-    description: 'Requires OWNER role in the target space.',
-  })
   async list(
     @Req() request: RequestWithUser,
     @Param('spaceId', new ParseUUIDPipe()) spaceId: string,
@@ -60,10 +54,6 @@ export class SpaceMemberController {
   @Version('1')
   @Post()
   @RequireSpaceRole(SpaceRole.OWNER, { spaceIdParam: 'spaceId' })
-  @ApiOperation({
-    summary: 'Add a member to the space',
-    description: 'Requires OWNER role in the target space.',
-  })
   async add(
     @Req() request: RequestWithUser,
     @Param('spaceId', new ParseUUIDPipe()) spaceId: string,
@@ -76,10 +66,6 @@ export class SpaceMemberController {
   @Version('1')
   @Patch(':memberId')
   @RequireSpaceRole(SpaceRole.OWNER, { spaceIdParam: 'spaceId' })
-  @ApiOperation({
-    summary: 'Update a space member role',
-    description: 'Requires OWNER role in the target space.',
-  })
   async updateRole(
     @Req() request: RequestWithUser,
     @Param('spaceId', new ParseUUIDPipe()) spaceId: string,
@@ -93,10 +79,6 @@ export class SpaceMemberController {
   @Version('1')
   @Delete(':memberId')
   @RequireSpaceRole(SpaceRole.OWNER, { spaceIdParam: 'spaceId' })
-  @ApiOperation({
-    summary: 'Remove a member from the space',
-    description: 'Requires OWNER role in the target space.',
-  })
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(
     @Req() request: RequestWithUser,

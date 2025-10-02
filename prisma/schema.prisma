@@ -103,8 +103,8 @@ model Space {
 
 model SpaceMember {
   id        String    @id @default(uuid())
-  spaceId   String    @db.Uuid
-  userId    String    @db.Uuid
+  spaceId   String    
+  userId    String    
   role      SpaceRole @default(VIEWER)
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
