@@ -1,21 +1,25 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { File, Prisma, Reminder } from '@prisma/client';
+import { File, Prisma, Reminder, SpaceRole } from '@prisma/client';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateReminderDto } from './dto/create-reminder.dto';
 import { ReminderResponseDto } from './dto/reminder-response.dto';
 import { ReminderFileResponseDto } from './dto/reminder-file-response.dto';
 import { UpdateReminderDto } from './dto/update-reminder.dto';
+import { SpaceMemberService } from 'src/space-member/space-member.service';
 
 @Injectable()
 export class ReminderService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly spaceMembers: SpaceMemberService,
+  ) {}
 
   async createReminder(
     userId: string,
     spaceId: string,
     dto: CreateReminderDto,
   ): Promise<ReminderResponseDto> {
-    await this.ensureSpaceOwnership(userId, spaceId);
+    await this.spaceMembers.assertRole(spaceId, userId, SpaceRole.EDITOR);
 
     const fileIds = this.uniqueIds(dto.fileIds);
     await this.assertFilesBelongToSpace(spaceId, fileIds);
@@ -40,7 +44,7 @@ export class ReminderService {
     userId: string,
     spaceId: string,
   ): Promise<ReminderResponseDto[]> {
-    await this.ensureSpaceOwnership(userId, spaceId);
+    await this.spaceMembers.assertRole(spaceId, userId, SpaceRole.VIEWER);
 
     const reminders = await this.prisma.reminder.findMany({
       where: { spaceId },
@@ -56,12 +60,14 @@ export class ReminderService {
     spaceId: string,
     reminderId: string,
   ): Promise<ReminderResponseDto> {
+    await this.spaceMembers.assertRole(spaceId, userId, SpaceRole.VIEWER);
+
     const reminder = await this.prisma.reminder.findFirst({
       where: { id: reminderId, spaceId },
       include: { files: true, space: { select: { ownerId: true } } },
     });
 
-    if (!reminder || reminder.space.ownerId !== userId) {
+    if (!reminder) {
       throw new NotFoundException('Reminder not found.');
     }
 
@@ -74,12 +80,14 @@ export class ReminderService {
     reminderId: string,
     dto: UpdateReminderDto,
   ): Promise<ReminderResponseDto> {
+    await this.spaceMembers.assertRole(spaceId, userId, SpaceRole.EDITOR);
+
     const existing = await this.prisma.reminder.findFirst({
       where: { id: reminderId, spaceId },
-      select: { id: true, space: { select: { ownerId: true } } },
+      select: { id: true },
     });
 
-    if (!existing || existing.space.ownerId !== userId) {
+    if (!existing) {
       throw new NotFoundException('Reminder not found.');
     }
 
@@ -117,12 +125,14 @@ export class ReminderService {
     spaceId: string,
     reminderId: string,
   ): Promise<void> {
+    await this.spaceMembers.assertRole(spaceId, userId, SpaceRole.MANAGER);
+
     const reminder = await this.prisma.reminder.findFirst({
       where: { id: reminderId, spaceId },
-      select: { id: true, space: { select: { ownerId: true } } },
+      select: { id: true },
     });
 
-    if (!reminder || reminder.space.ownerId !== userId) {
+    if (!reminder) {
       throw new NotFoundException('Reminder not found.');
     }
 
@@ -135,6 +145,8 @@ export class ReminderService {
     reminderId: string,
     fileIds: string[],
   ): Promise<ReminderResponseDto> {
+    await this.spaceMembers.assertRole(spaceId, userId, SpaceRole.EDITOR);
+
     const reminder = await this.prisma.reminder.findFirst({
       where: { id: reminderId, spaceId },
       include: {
@@ -143,7 +155,7 @@ export class ReminderService {
       },
     });
 
-    if (!reminder || reminder.space.ownerId !== userId) {
+    if (!reminder) {
       throw new NotFoundException('Reminder not found.');
     }
 
@@ -158,7 +170,7 @@ export class ReminderService {
         where: { id: reminderId, spaceId },
         include: { files: true, space: { select: { ownerId: true } } },
       });
-      if (!current || current.space.ownerId !== userId) {
+      if (!current) {
         throw new NotFoundException('Reminder not found.');
       }
       return this.toReminderResponse(current);
@@ -179,12 +191,14 @@ export class ReminderService {
     reminderId: string,
     fileId: string,
   ): Promise<ReminderResponseDto> {
+    await this.spaceMembers.assertRole(spaceId, userId, SpaceRole.EDITOR);
+
     const reminder = await this.prisma.reminder.findFirst({
       where: { id: reminderId, spaceId },
-      select: { id: true, space: { select: { ownerId: true } } },
+      select: { id: true },
     });
 
-    if (!reminder || reminder.space.ownerId !== userId) {
+    if (!reminder) {
       throw new NotFoundException('Reminder not found.');
     }
 
@@ -213,20 +227,6 @@ export class ReminderService {
     });
 
     return this.toReminderResponse(updated);
-  }
-
-  private async ensureSpaceOwnership(
-    userId: string,
-    spaceId: string,
-  ): Promise<void> {
-    const space = await this.prisma.space.findUnique({
-      where: { id: spaceId },
-      select: { ownerId: true },
-    });
-
-    if (!space || space.ownerId !== userId) {
-      throw new NotFoundException('Space not found.');
-    }
   }
 
   private async assertFilesBelongToSpace(

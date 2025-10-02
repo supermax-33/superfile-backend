@@ -24,10 +24,12 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CreateSpaceDto } from './dto/create-space.dto';
 import { SpaceResponseDto } from './dto/space-response.dto';
 import { UpdateSpaceDto } from './dto/update-space.dto';
-import { SpaceOwnerGuard } from './guards/space-owner.guard';
 import { SpaceService } from './space.service';
 import { JwtExceptionFilter } from 'src/auth/filters/jwt-exception.filter';
 import { RequestWithUser } from 'types';
+import { SpaceRole } from '@prisma/client';
+import { RequireSpaceRole } from '../space-member/decorators/space-role.decorator';
+import { SpaceRoleGuard } from '../space-member/guards/space-role.guard';
 
 @Controller('spaces')
 export class SpaceController {
@@ -54,7 +56,8 @@ export class SpaceController {
   @Version('1')
   @Patch(':id')
   @UseFilters(JwtExceptionFilter)
-  @UseGuards(JwtAuthGuard, SpaceOwnerGuard)
+  @UseGuards(JwtAuthGuard, SpaceRoleGuard)
+  @RequireSpaceRole(SpaceRole.OWNER, { source: 'param', key: 'id' })
   async update(
     @Param('id') spaceId: string,
     @Body() dto: UpdateSpaceDto,
@@ -64,7 +67,8 @@ export class SpaceController {
 
   @Version('1')
   @Delete(':id')
-  @UseGuards(JwtAuthGuard, SpaceOwnerGuard)
+  @UseGuards(JwtAuthGuard, SpaceRoleGuard)
+  @RequireSpaceRole(SpaceRole.OWNER, { source: 'param', key: 'id' })
   @UseFilters(JwtExceptionFilter)
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(@Param('id') spaceId: string): Promise<void> {
@@ -73,7 +77,8 @@ export class SpaceController {
 
   @Version('1')
   @UseFilters(JwtExceptionFilter)
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, SpaceRoleGuard)
+  @RequireSpaceRole(SpaceRole.VIEWER, { source: 'param', key: 'id' })
   @Get(':id')
   async findOne(@Param('id') spaceId: string): Promise<SpaceResponseDto> {
     return this.spaceService.findOne(spaceId);
@@ -81,7 +86,8 @@ export class SpaceController {
 
   @Version('1')
   @Put(':id/logo')
-  @UseGuards(JwtAuthGuard, SpaceOwnerGuard)
+  @UseGuards(JwtAuthGuard, SpaceRoleGuard)
+  @RequireSpaceRole(SpaceRole.OWNER, { source: 'param', key: 'id' })
   @UseFilters(JwtExceptionFilter)
   @UseInterceptors(FileInterceptor('file'))
   async updateLogo(

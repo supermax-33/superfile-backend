@@ -3,6 +3,7 @@ import { Test, TestingModuleBuilder } from '@nestjs/testing';
 import * as request from 'supertest';
 import { resolve } from 'path';
 import { execSync } from 'child_process';
+import * as bcrypt from 'bcrypt';
 import { AppModule } from '../../src/app.module';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { MailService } from '../../src/mail/mail.service';
@@ -276,6 +277,86 @@ describe('Superfile API (e2e)', () => {
       .expect(204);
 
     const pdfPath = resolve(__dirname, '../../test_files/about_superfile.pdf');
+
+    const collaboratorEmail = `collab.user+${slugSuffix}@example.com`;
+    const collaboratorPassword = 'CollabPass1!';
+    const collaboratorHash = await bcrypt.hash(collaboratorPassword, 10);
+
+    const collaborator = await prismaClient.user.create({
+      data: {
+        email: collaboratorEmail,
+        passwordHash: collaboratorHash,
+        emailVerified: true,
+      },
+    });
+
+    const addMemberRes = await api
+      .post(`/api/v1/spaces/${spaceId}/members`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ userId: collaborator.id })
+      .expect(201);
+    expect(addMemberRes.body.role).toBe('VIEWER');
+
+    const membersList = await api
+      .get(`/api/v1/spaces/${spaceId}/members`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+    expect(
+      membersList.body.some(
+        (member: any) => member.userId === collaborator.id,
+      ),
+    ).toBe(true);
+
+    const collaboratorLogin = await api
+      .post('/api/v1/auth/login')
+      .send({ email: collaboratorEmail, password: collaboratorPassword })
+      .expect(201);
+    const collaboratorAccessToken = collaboratorLogin.body
+      .accessToken as string;
+
+    await api
+      .post('/api/v1/files')
+      .set('Authorization', `Bearer ${collaboratorAccessToken}`)
+      .field('spaceId', spaceId)
+      .attach('files', pdfPath)
+      .expect(403);
+
+    await api
+      .patch(`/api/v1/spaces/${spaceId}/members/${addMemberRes.body.id}`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ role: 'EDITOR' })
+      .expect(200);
+
+    await api
+      .patch(`/api/v1/spaces/${spaceId}/members/${addMemberRes.body.id}`)
+      .set('Authorization', `Bearer ${collaboratorAccessToken}`)
+      .send({ role: 'MANAGER' })
+      .expect(403);
+
+    const collabUploadRes = await api
+      .post('/api/v1/files')
+      .set('Authorization', `Bearer ${collaboratorAccessToken}`)
+      .field('spaceId', spaceId)
+      .attach('files', pdfPath)
+      .expect(201);
+    const collabFile = collabUploadRes.body[0];
+    expect(collabFile).toBeDefined();
+
+    await api
+      .delete(`/api/v1/files/${collabFile.id}`)
+      .set('Authorization', `Bearer ${collaboratorAccessToken}`)
+      .expect(403);
+
+    await api
+      .patch(`/api/v1/spaces/${spaceId}/members/${addMemberRes.body.id}`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ role: 'MANAGER' })
+      .expect(200);
+
+    await api
+      .delete(`/api/v1/files/${collabFile.id}`)
+      .set('Authorization', `Bearer ${collaboratorAccessToken}`)
+      .expect(204);
 
     const uploadResA = await api
       .post('/api/v1/files')

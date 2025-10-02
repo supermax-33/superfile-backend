@@ -7,7 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Readable } from 'node:stream';
-import { File, FileStatus } from '@prisma/client';
+import { File, FileStatus, SpaceRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { FileResponseDto } from './dto/file-response.dto';
 import { FileNoteResponseDto } from './dto/file-note-response.dto';
@@ -26,6 +26,7 @@ import {
 } from './dto/batch-download-files.dto';
 import { ALLOWED_MIME_TYPES, MAX_FILE_SIZE_BYTES } from 'config';
 import { buildS3Key, formatError, normalizeName } from 'utils/helpers';
+import { SpaceMemberService } from '../space-member/space-member.service';
 
 @Injectable()
 export class FileService {
@@ -36,6 +37,7 @@ export class FileService {
     private readonly storage: S3FileStorageService,
     private readonly progress: FileProgressService,
     private readonly openAi: OpenAiVectorStoreService,
+    private readonly spaceMembers: SpaceMemberService,
   ) {}
 
   async uploadFiles(
@@ -48,17 +50,15 @@ export class FileService {
       throw new BadRequestException('At least one file must be provided.');
     }
 
+    await this.spaceMembers.assertRole(spaceId, userId, SpaceRole.EDITOR);
+
     const space = await this.prisma.space.findUnique({
       where: { id: spaceId },
-      select: { ownerId: true, vectorStoreId: true },
+      select: { vectorStoreId: true },
     });
 
     if (!space) {
       throw new NotFoundException('Space not found.');
-    }
-
-    if (space.ownerId !== userId) {
-      throw new ForbiddenException('You do not own the target space.');
     }
 
     const vectorStoreId = space.vectorStoreId;
@@ -164,13 +164,19 @@ export class FileService {
     userId: string,
     query: ListFilesQueryDto,
   ): Promise<FileResponseDto[]> {
+    if (query.spaceId) {
+      await this.spaceMembers.assertRole(
+        query.spaceId,
+        userId,
+        SpaceRole.VIEWER,
+      );
+    }
+
     const files = await this.prisma.file.findMany({
       where: {
-        space: {
-          ownerId: userId,
-          ...(query.spaceId ? { id: query.spaceId } : {}),
-        },
+        ...(query.spaceId ? { spaceId: query.spaceId } : {}),
         ...(query.status ? { status: query.status } : {}),
+        space: { members: { some: { userId } } },
       },
       orderBy: { uploadedAt: 'desc' },
     });
@@ -179,17 +185,16 @@ export class FileService {
   }
 
   async getNote(fileId: string, userId: string): Promise<FileNoteResponseDto> {
-    const file = await this.prisma.file.findFirst({
-      where: {
-        id: fileId,
-        space: { ownerId: userId },
-      },
-      select: { note: true },
+    const file = await this.prisma.file.findUnique({
+      where: { id: fileId },
+      select: { note: true, spaceId: true },
     });
 
     if (!file) {
       throw new NotFoundException('File not found.');
     }
+
+    await this.spaceMembers.assertRole(file.spaceId, userId, SpaceRole.VIEWER);
 
     return new FileNoteResponseDto({ note: file.note ?? null });
   }
@@ -199,17 +204,16 @@ export class FileService {
     userId: string,
     note: string,
   ): Promise<FileNoteResponseDto> {
-    const existing = await this.prisma.file.findFirst({
-      where: {
-        id: fileId,
-        space: { ownerId: userId },
-      },
-      select: { id: true },
+    const file = await this.prisma.file.findUnique({
+      where: { id: fileId },
+      select: { id: true, spaceId: true },
     });
 
-    if (!existing) {
+    if (!file) {
       throw new NotFoundException('File not found.');
     }
+
+    await this.spaceMembers.assertRole(file.spaceId, userId, SpaceRole.EDITOR);
 
     const updated = await this.prisma.file.update({
       where: { id: fileId },
@@ -221,17 +225,16 @@ export class FileService {
   }
 
   async clearNote(fileId: string, userId: string): Promise<void> {
-    const existing = await this.prisma.file.findFirst({
-      where: {
-        id: fileId,
-        space: { ownerId: userId },
-      },
-      select: { id: true },
+    const file = await this.prisma.file.findUnique({
+      where: { id: fileId },
+      select: { spaceId: true },
     });
 
-    if (!existing) {
+    if (!file) {
       throw new NotFoundException('File not found.');
     }
+
+    await this.spaceMembers.assertRole(file.spaceId, userId, SpaceRole.EDITOR);
 
     await this.prisma.file.update({
       where: { id: fileId },
@@ -243,19 +246,19 @@ export class FileService {
     fileId: string,
     userId: string,
   ): Promise<FileProgressResponseDto> {
-    const file = await this.prisma.file.findFirst({
-      where: {
-        id: fileId,
-        space: { ownerId: userId },
-      },
+    const file = await this.prisma.file.findUnique({
+      where: { id: fileId },
       select: {
         size: true,
+        spaceId: true,
       },
     });
 
     if (!file) {
       throw new NotFoundException('File not found.');
     }
+
+    await this.spaceMembers.assertRole(file.spaceId, userId, SpaceRole.VIEWER);
 
     const snapshot = this.progress.getSnapshot(fileId);
 
@@ -292,16 +295,15 @@ export class FileService {
     contentType: string;
     contentLength?: number;
   }> {
-    const file = await this.prisma.file.findFirst({
-      where: {
-        id: fileId,
-        space: { ownerId: userId },
-      },
+    const file = await this.prisma.file.findUnique({
+      where: { id: fileId },
     });
 
     if (!file) {
       throw new NotFoundException('File not found.');
     }
+
+    await this.spaceMembers.assertRole(file.spaceId, userId, SpaceRole.VIEWER);
 
     const download = await this.storage.download(file.s3Key);
 
@@ -317,16 +319,15 @@ export class FileService {
     fileId: string,
     userId: string,
   ): Promise<FileResponseDto> {
-    const file = await this.prisma.file.findFirst({
-      where: {
-        id: fileId,
-        space: { ownerId: userId },
-      },
+    const file = await this.prisma.file.findUnique({
+      where: { id: fileId },
     });
 
     if (!file) {
       throw new NotFoundException('File not found.');
     }
+
+    await this.spaceMembers.assertRole(file.spaceId, userId, SpaceRole.EDITOR);
 
     if (!file.vectorStoreId || !file.openAiFileId) {
       throw new BadRequestException('File has not been ingested yet.');
@@ -349,16 +350,15 @@ export class FileService {
   }
 
   async remove(fileId: string, userId: string): Promise<void> {
-    const file = await this.prisma.file.findFirst({
-      where: {
-        id: fileId,
-        space: { ownerId: userId },
-      },
+    const file = await this.prisma.file.findUnique({
+      where: { id: fileId },
     });
 
     if (!file) {
       throw new NotFoundException('File not found.');
     }
+
+    await this.spaceMembers.assertRole(file.spaceId, userId, SpaceRole.MANAGER);
 
     try {
       await this.storage.delete(file.s3Key);
@@ -402,7 +402,13 @@ export class FileService {
     const files = await this.prisma.file.findMany({
       where: {
         id: { in: uniqueIds },
-        space: { ownerId: userId },
+      },
+      select: {
+        id: true,
+        spaceId: true,
+        s3Key: true,
+        vectorStoreId: true,
+        openAiFileId: true,
       },
     });
 
@@ -418,6 +424,28 @@ export class FileService {
           new BatchDeleteFailureDto({
             fileId,
             error: 'File not found or access denied.',
+          }),
+        );
+        continue;
+      }
+
+      try {
+        await this.spaceMembers.assertRole(
+          file.spaceId,
+          userId,
+          SpaceRole.MANAGER,
+        );
+      } catch (error) {
+        const message =
+          error instanceof ForbiddenException
+            ? 'You do not have permission to delete this file.'
+            : error instanceof NotFoundException
+              ? 'Associated space not found.'
+              : 'Unable to verify file permissions.';
+        failed.push(
+          new BatchDeleteFailureDto({
+            fileId,
+            error: message,
           }),
         );
         continue;
@@ -483,16 +511,53 @@ export class FileService {
     const files = await this.prisma.file.findMany({
       where: {
         id: { in: uniqueIds },
-        space: { ownerId: userId },
+      },
+      select: {
+        id: true,
+        spaceId: true,
+        filename: true,
+        mimetype: true,
+        size: true,
+        s3Key: true,
       },
     });
 
     const fileMap = new Map(files.map((file) => [file.id, file]));
 
-    if (fileMap.size !== uniqueIds.length) {
-      const missing = uniqueIds.filter((id) => !fileMap.has(id));
+    const missing: string[] = [];
+    const forbidden: string[] = [];
+
+    for (const fileId of uniqueIds) {
+      const file = fileMap.get(fileId);
+      if (!file) {
+        missing.push(fileId);
+        continue;
+      }
+
+      try {
+        await this.spaceMembers.assertRole(
+          file.spaceId,
+          userId,
+          SpaceRole.VIEWER,
+        );
+      } catch (error) {
+        if (error instanceof NotFoundException) {
+          missing.push(fileId);
+        } else {
+          forbidden.push(fileId);
+        }
+      }
+    }
+
+    if (missing.length) {
       throw new NotFoundException(
-        `Files not found or access denied: ${missing.join(', ')}`,
+        `Files not found: ${missing.join(', ')}`,
+      );
+    }
+
+    if (forbidden.length) {
+      throw new ForbiddenException(
+        `You do not have permission to access files: ${forbidden.join(', ')}`,
       );
     }
 

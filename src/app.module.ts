@@ -6,12 +6,14 @@ import { SessionModule } from './sessions/session.module';
 import { FileModule } from './file/file.module';
 import { ConversationModule } from './conversation/conversation.module';
 import { ReminderModule } from './reminder/reminder.module';
+import { SpaceMemberModule } from './space-member/space-member.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     AuthModule,
     SpaceModule,
+    SpaceMemberModule,
     SessionModule,
     FileModule,
     ConversationModule,

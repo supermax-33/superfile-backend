@@ -17,16 +17,18 @@ import {
 import { JwtExceptionFilter } from 'src/auth/filters/jwt-exception.filter';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RequestWithUser } from 'types';
-import { FileOwnerGuard } from './guards/file-owner.guard';
 import { FileShareService } from './file-share.service';
 import { CreateFileShareDto } from './dto/create-file-share.dto';
 import { FileShareResponseDto } from './dto/file-share-response.dto';
 import { PublicFileShareResponseDto } from './dto/public-file-share-response.dto';
 import { SendFileShareEmailDto } from './dto/send-file-share-email.dto';
+import { SpaceRole } from '@prisma/client';
+import { RequireSpaceRole } from '../space-member/decorators/space-role.decorator';
+import { SpaceRoleGuard } from '../space-member/guards/space-role.guard';
 
 @Controller('files')
 @UseFilters(JwtExceptionFilter)
-@UseGuards(JwtAuthGuard, FileOwnerGuard)
+@UseGuards(JwtAuthGuard, SpaceRoleGuard)
 export class FileShareController {
   constructor(private readonly fileShareService: FileShareService) {}
 
@@ -42,6 +44,7 @@ export class FileShareController {
 
   @Version('1')
   @Post(':id/share')
+  @RequireSpaceRole(SpaceRole.EDITOR, { source: 'file', param: 'id' })
   async createShare(
     @Param('id') fileId: string,
     @Req() request: RequestWithUser,
@@ -53,6 +56,7 @@ export class FileShareController {
 
   @Version('1')
   @Get(':id/shares')
+  @RequireSpaceRole(SpaceRole.EDITOR, { source: 'file', param: 'id' })
   async listShares(
     @Param('id') fileId: string,
     @Req() request: RequestWithUser,
@@ -63,6 +67,7 @@ export class FileShareController {
 
   @Version('1')
   @Delete(':id/shares/:shareId')
+  @RequireSpaceRole(SpaceRole.EDITOR, { source: 'file', param: 'id' })
   @HttpCode(HttpStatus.NO_CONTENT)
   async revokeShare(
     @Param('id') fileId: string,
@@ -75,6 +80,7 @@ export class FileShareController {
 
   @Version('1')
   @Post(':id/share/email')
+  @RequireSpaceRole(SpaceRole.EDITOR, { source: 'file', param: 'id' })
   @HttpCode(HttpStatus.NO_CONTENT)
   async sendShareEmail(
     @Param('id') fileId: string,

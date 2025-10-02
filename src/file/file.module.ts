@@ -10,20 +10,25 @@ import {
   PublicFileShareController,
 } from './file-share.controller';
 import { FileService } from './file.service';
-import { FileOwnerGuard } from './guards/file-owner.guard';
 import { FileProgressService } from './file-progress.service';
 import { S3FileStorageService } from './s3-file-storage.service';
 import { OpenAiVectorStoreService } from './openai-vector-store.service';
 import { S3_CLIENT_TOKEN } from './file.tokens';
 import { FilePresignedUrlService } from './presigned-url.service';
 import { FileShareService } from './file-share.service';
+import { SpaceMemberModule } from '../space-member/space-member.module';
 
 @Module({
-  imports: [PrismaModule, ConfigModule, OpenAiModule, MailModule],
+  imports: [
+    PrismaModule,
+    ConfigModule,
+    OpenAiModule,
+    MailModule,
+    SpaceMemberModule,
+  ],
   controllers: [FileController, FileShareController, PublicFileShareController],
   providers: [
     FileService,
-    FileOwnerGuard,
     FileProgressService,
     S3FileStorageService,
     FilePresignedUrlService,

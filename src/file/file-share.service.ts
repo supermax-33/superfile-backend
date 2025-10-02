@@ -13,6 +13,8 @@ import { FilePresignedUrlService } from './presigned-url.service';
 import { CreateFileShareDto } from './dto/create-file-share.dto';
 import { FileShareResponseDto } from './dto/file-share-response.dto';
 import { PublicFileShareResponseDto } from './dto/public-file-share-response.dto';
+import { SpaceMemberService } from '../space-member/space-member.service';
+import { SpaceRole } from '@prisma/client';
 
 const INVALID_OR_EXPIRED_MESSAGE = 'Share link is invalid or has expired.';
 
@@ -44,6 +46,7 @@ export class FileShareService {
     private readonly prisma: PrismaService,
     private readonly presignedUrls: FilePresignedUrlService,
     private readonly mailService: MailService,
+    private readonly spaceMembers: SpaceMemberService,
     configService: ConfigService,
   ) {
     const configuredBaseUrl =
@@ -202,14 +205,20 @@ export class FileShareService {
     fileId: string,
     userId: string,
   ): Promise<{ id: string; spaceId: string }> {
-    const file = await this.prisma.file.findFirst({
-      where: { id: fileId, space: { ownerId: userId } },
+    const file = await this.prisma.file.findUnique({
+      where: { id: fileId },
       select: { id: true, spaceId: true },
     });
 
     if (!file) {
       throw new NotFoundException('File not found.');
     }
+
+    await this.spaceMembers.assertRole(
+      file.spaceId,
+      userId,
+      SpaceRole.EDITOR,
+    );
 
     return file;
   }

@@ -251,7 +251,7 @@ Exchanges a Google ID token (used by native/mobile clients) for first-party JWTs
 
 ## Spaces
 
-All space routes require an authenticated owner context via `JwtAuthGuard`. The owner-only guard enforces that the caller owns the targeted space.
+All space routes require authentication. Space-scoped permissions are enforced with the `SpaceRoleGuard`, which resolves the caller's membership and ensures the minimum role for the operation (VIEWER for read access, OWNER for administrative changes). The user who creates a space is automatically registered as the `OWNER` member.
 
 ### `POST /api/v1/spaces`
 Creates a new space and provisions an OpenAI vector store for file search.
@@ -308,6 +308,7 @@ Updates the space name and/or slug.
 
 **Error states**
 - `400 Bad Request` if no fields are provided or the normalized name is empty.
+- `403 Forbidden` if the caller is not an `OWNER` member of the space.
 
 ### `DELETE /api/v1/spaces/:id`
 Deletes the space, its vector store, and associated records. Returns `204 No Content` on success.
@@ -315,9 +316,14 @@ Deletes the space, its vector store, and associated records. Returns `204 No Con
 **Error states**
 - `404 Not Found` if the space does not exist.
 - `500 Internal Server Error` if the vector store or storage cleanup fails.
+- `403 Forbidden` if the caller lacks the `OWNER` role.
 
 ### `GET /api/v1/spaces/:id`
 Fetches a single space including logo metadata.
+
+**Error states**
+- `403 Forbidden` if the caller is not a member of the space.
+- `404 Not Found` if the space does not exist.
 
 ### `PUT /api/v1/spaces/:id/logo`
 Uploads or replaces the space logo via `multipart/form-data` (`file` field) and returns the updated space.
@@ -325,10 +331,84 @@ Uploads or replaces the space logo via `multipart/form-data` (`file` field) and 
 **Error states**
 - `400 Bad Request` when no file is attached.
 - `404 Not Found` if the space cannot be loaded after upload.
+- `403 Forbidden` if the caller is not an `OWNER` member.
+
+### Space member roles
+
+- `VIEWER`: can read files, conversations, and reminders inside the space.
+- `EDITOR`: inherits viewer capabilities and can upload files, start conversations, and create or edit reminders.
+- `MANAGER`: inherits editor capabilities and can delete files, conversations, and reminders.
+- `OWNER`: full administrative control, including updating space settings and managing memberships.
+
+### `POST /api/v1/spaces/:spaceId/members`
+Adds a user to the space with the provided role. Requires the caller to be the `OWNER` of the space. When `role` is omitted the new member defaults to `VIEWER`.
+
+**Request**
+```json
+{
+  "userId": "8f42ec44-2c3a-4f78-8ad4-3a964ab73d2f",
+  "role": "EDITOR"
+}
+```
+
+**Response**
+```json
+{
+  "id": "3a9d5a64-7b9d-4f66-8f7d-3e7a2b1d2c4e",
+  "spaceId": "d1c5e7f0-28cc-49ec-9f42-5b25a38c56c7",
+  "userId": "8f42ec44-2c3a-4f78-8ad4-3a964ab73d2f",
+  "role": "EDITOR",
+  "createdAt": "2024-05-02T11:22:33.000Z",
+  "updatedAt": "2024-05-02T11:22:33.000Z",
+  "user": {
+    "id": "8f42ec44-2c3a-4f78-8ad4-3a964ab73d2f",
+    "email": "collab@example.com",
+    "displayName": "Collaborator"
+  }
+}
+```
+
+**Error states**
+- `400 Bad Request` if the user is already a member or attempts to assign the `OWNER` role.
+- `403 Forbidden` if the caller is not the space owner.
+- `404 Not Found` if the user or space does not exist.
+
+### `PATCH /api/v1/spaces/:spaceId/members/:memberId`
+Updates a member's role. Only the `OWNER` may change roles, and the `OWNER` membership cannot be reassigned.
+
+**Request**
+```json
+{
+  "role": "MANAGER"
+}
+```
+
+**Response**
+Matches the single member response above with the updated `role`.
+
+**Error states**
+- `400 Bad Request` if the request attempts to promote another user to `OWNER` or to change the owner's role.
+- `403 Forbidden` when a non-owner calls the endpoint.
+- `404 Not Found` if the member cannot be found in the supplied space.
+
+### `GET /api/v1/spaces/:spaceId/members`
+Lists all members for a space along with their roles and basic profile metadata. Requires the caller to be at least a `VIEWER` member.
+
+**Error states**
+- `403 Forbidden` if the caller has no membership in the space.
+- `404 Not Found` if the space does not exist.
+
+### `DELETE /api/v1/spaces/:spaceId/members/:memberId`
+Removes a member from the space. Only the `OWNER` may invoke this endpoint and the owner's membership cannot be deleted.
+
+**Error states**
+- `400 Bad Request` if attempting to remove the owner.
+- `403 Forbidden` if the caller is not the owner.
+- `404 Not Found` if the member record does not exist for the space.
 
 ## Files
 
-All routes are JWT-protected. Uploads accept MIME types defined by `ALLOWED_MIME_TYPES` (pdf for now) and are size-limited by `MAX_FILE_SIZE_BYTES` (25MB for now). Ownership checks ensure files and spaces belong to the caller.
+All routes are JWT-protected. Uploads accept MIME types defined by `ALLOWED_MIME_TYPES` (pdf for now) and are size-limited by `MAX_FILE_SIZE_BYTES` (25MB for now). Access is scoped by space membership: VIEWERs can read and download, EDITORs can upload and modify metadata, and MANAGERs can perform destructive actions such as deletions.
 
 ### `POST /api/v1/files`
 Uploads one or more files to a space and triggers ingestion into the vector store. Uses `multipart/form-data` with the `files` field plus JSON body fields `spaceId` and optional `note`
@@ -361,11 +441,11 @@ Uploads one or more files to a space and triggers ingestion into the vector stor
 
 **Error states**
 - `400 Bad Request` if no files are attached, a file type is disallowed, a file exceeds the size limit, or the space lacks a vector store.
-- `403 Forbidden` if the caller does not own the target space.
+- `403 Forbidden` if the caller is not at least an `EDITOR` member of the space.
 - `404 Not Found` if the space does not exist.
 
 ### `GET /api/v1/files`
-Lists files owned by the authenticated user
+Lists files from spaces where the authenticated user is a member. Optional filters (`spaceId`, `status`) narrow the results.
 
 **Example Response**
 ```json
@@ -389,13 +469,18 @@ Lists files owned by the authenticated user
 ```
 
 ### `GET /api/v1/files/:id`
-Downloads a file stream after verifying ownership. Response headers include `Content-Type`, `Content-Disposition`, and optionally `Content-Length`.
+Downloads a file stream after verifying the requester belongs to the file's space. Response headers include `Content-Type`, `Content-Disposition`, and optionally `Content-Length`.
 
 **Error states**
-- `404 Not Found` if the file does not exist or is not owned by the user.
+- `403 Forbidden` if the caller is not a member of the file's space.
+- `404 Not Found` if the file does not exist.
 
 ### `GET /api/v1/files/:id/note`
 Fetches the stored note for a file.
+
+**Error states**
+- `403 Forbidden` if the caller is not a member of the space.
+- `404 Not Found` if the file does not exist.
 
 ### `PATCH /api/v1/files/:id/note`
 Updates the note content.
@@ -415,18 +500,28 @@ Updates the note content.
 ```
 
 **Error states**
-- `404 Not Found` if the file is missing or not owned by the caller.
+- `403 Forbidden` if the caller lacks the `EDITOR` role for the space.
+- `404 Not Found` if the file is missing.
 
 ### `DELETE /api/v1/files/:id/note`
 Clears the note. Returns `204 No Content`.
 
+**Error states**
+- `403 Forbidden` if the caller lacks the `EDITOR` role for the space.
+- `404 Not Found` if the file is missing.
+
 ### `GET /api/v1/files/:id/progress`
 Retrieves real-time upload progress or a completed snapshot if the upload has finished.
+
+**Error states**
+- `403 Forbidden` if the caller is not a member of the space.
+- `404 Not Found` if the file cannot be found.
 
 ### `PATCH /api/v1/files/:id/status`
 Refreshes the ingestion status from OpenAI and updates the local record.
 
 **Error states**
+- `403 Forbidden` if the caller lacks the `EDITOR` role for the space.
 - `404 Not Found` if the file is missing.
 - `400 Bad Request` when the file has not been ingested yet (no OpenAI ids).
 
@@ -458,6 +553,7 @@ Batch deletes files by id and reports per-file success/failure details.
 
 **Error states**
 - `400 Bad Request` if no `fileIds` are supplied.
+- `403 Forbidden` if the caller lacks the `MANAGER` role for any referenced space.
 
 ### `POST /api/v1/files/download`
 Generates short-lived download URLs for multiple files.
@@ -488,11 +584,12 @@ Generates short-lived download URLs for multiple files.
 
 **Error states**
 - `400 Bad Request` if no ids are provided.
-- `404 Not Found` when any requested file is missing or not owned by the user.
+- `403 Forbidden` if the caller lacks access to any requested file.
+- `404 Not Found` when a requested file does not exist.
 - `500 Internal Server Error` if a presigned URL cannot be generated.
 
 ### `POST /api/v1/files/:id/share`
-Creates a new public share link for a file you own. The optional expiry must be in the future and notes are trimmed to at most 1024 characters.【F:src/file/dto/create-file-share.dto.ts†L4-L11】
+Creates a new public share link for a file when you hold at least the `EDITOR` role in the space. The optional expiry must be in the future and notes are trimmed to at most 1024 characters.【F:src/file/dto/create-file-share.dto.ts†L4-L11】
 
 **Request**
 ```json
@@ -517,11 +614,12 @@ Creates a new public share link for a file you own. The optional expiry must be 
 ```
 
 **Error states**
-- `404 Not Found` if the file is missing or not owned by the caller.
+- `403 Forbidden` if the caller lacks the `EDITOR` role for the space.
+- `404 Not Found` if the file is missing.
 - `400 Bad Request` when the expiration is invalid or not in the future.
 
 ### `GET /api/v1/files/:id/shares`
-Lists active (non-expired) share links for the file in newest-first order.
+Lists active (non-expired) share links for the file in newest-first order. Requires `EDITOR` access to the space.
 
 **Example Response**
 ```json
@@ -540,13 +638,15 @@ Lists active (non-expired) share links for the file in newest-first order.
 ```
 
 **Error states**
-- `404 Not Found` if the file does not exist or is not owned by the caller.
+- `403 Forbidden` if the caller lacks the `EDITOR` role for the space.
+- `404 Not Found` if the file does not exist.
 
 ### `DELETE /api/v1/files/:id/shares/:shareId`
 Revokes a share link. Returns `204 No Content`.
 
 **Error states**
-- `404 Not Found` if the share id is unknown for that file or the file is not owned by the user.
+- `403 Forbidden` if the caller lacks the `EDITOR` role for the space.
+- `404 Not Found` if the share id is unknown for that file.
 
 ### `POST /api/v1/files/:id/share/email`
 Sends the share link via email to a specific recipient using the configured mail provider.【F:src/file/dto/send-file-share-email.dto.ts†L4-L8】 Requires the share to be active (not expired).
@@ -563,7 +663,8 @@ Sends the share link via email to a specific recipient using the configured mail
 Empty body with status `204 No Content`.
 
 **Error states**
-- `404 Not Found` if the share does not exist for that file or the file is not owned by the user.
+- `403 Forbidden` if the caller lacks the `EDITOR` role for the space.
+- `404 Not Found` if the share does not exist for that file.
 - `400 Bad Request` when attempting to send an expired share link.
 
 ### `GET /api/v1/share/:shareToken`
@@ -593,12 +694,13 @@ Public endpoint that resolves a share token and returns a time-limited download 
 Deletes a single file, removing S3 and OpenAI artifacts. Returns `204 No Content`.
 
 **Error states**
-- `404 Not Found` if the file does not exist or is not owned by the caller.
+- `403 Forbidden` if the caller lacks the `MANAGER` role for the space.
+- `404 Not Found` if the file does not exist.
 - `500 Internal Server Error` if storage or vector store cleanup fails.
 
 ## Conversations
 
-All conversation endpoints are JWT-protected and scoped to the owning space. Ownership checks ensure conversations belong to the caller's space.
+All conversation endpoints are JWT-protected and scoped by space membership. Role checks ensure the caller satisfies the minimum required space role before performing the action.
 
 ### `POST /api/v1/spaces/:spaceId/conversations`
 Creates a new conversation within a space. Title is optional; if omitted the system will auto-name later.
@@ -624,8 +726,8 @@ Creates a new conversation within a space. Title is optional; if omitted the sys
 ```
 
 **Error states**
-- `404 Not Found` if the space does not exist for the user.
-- `403 Forbidden` when the space is owned by someone else.
+- `404 Not Found` if the space does not exist.
+- `403 Forbidden` when the caller lacks the `EDITOR` role for the space.
 
 ### `GET /api/v1/spaces/:spaceId/conversations`
 Lists conversations in a space (newest first).
@@ -634,7 +736,8 @@ Lists conversations in a space (newest first).
 Returns the ordered message history with hydrated file references and assistant actions.
 
 **Error states**
-- `404 Not Found` or `403 Forbidden` if the conversation is missing or belongs to another user.
+- `404 Not Found` if the conversation cannot be found.
+- `403 Forbidden` if the caller is not a member of the conversation's space.
 
 ### `POST /api/v1/conversations/:id/messages`
 Sends a user message and streams the assistant reply over Server-Sent Events (SSE). Events include:
@@ -648,17 +751,16 @@ Sends a user message and streams the assistant reply over Server-Sent Events (SS
 }
 ```
 
-**Error states**
 - `404 Not Found` if the conversation or space is missing.
-- `403 Forbidden` when the user lacks access.
+- `403 Forbidden` when the caller lacks the required space role (at least `EDITOR`).
 - `500 Internal Server Error` for OpenAI failures or missing vector store configuration.
 
 ### `DELETE /api/v1/conversations/:id`
-Deletes a conversation after verifying ownership. Returns `204 No Content`.
+Deletes a conversation after verifying the caller has the `MANAGER` role for the space. Returns `204 No Content`.
 
 ## Reminders
 
-Reminder routes are nested under a space and require JWT authentication. Ownership checks ensure reminders and files belong to the caller’s space.
+Reminder routes are nested under a space and require JWT authentication. Membership checks ensure the caller has the appropriate role within the space.
 
 ### `POST /api/v1/spaces/:spaceId/reminders`
 Creates a reminder with optional note and linked files.
@@ -701,7 +803,8 @@ Creates a reminder with optional note and linked files.
 ```
 
 **Error states**
-- `404 Not Found` when the space does not belong to the user or linked files are missing from the space.
+- `403 Forbidden` if the caller lacks the `EDITOR` role for the space.
+- `404 Not Found` when the space or referenced files cannot be found.
 
 ### `GET /api/v1/spaces/:spaceId/reminders`
 Lists reminders ordered by `remindAt`.
@@ -713,7 +816,8 @@ Returns a single reminder with file details.
 Updates reminder attributes and linked file set.
 
 **Error states**
-- `404 Not Found` if the reminder is missing, belongs to another user, or new fileIds are invalid.
+- `403 Forbidden` if the caller lacks the `EDITOR` role for the space.
+- `404 Not Found` if the reminder is missing or the provided fileIds are invalid.
 
 ### `DELETE /api/v1/spaces/:spaceId/reminders/:id`
 Deletes a reminder. Returns `204 No Content`.
@@ -732,12 +836,13 @@ Adds additional files to an existing reminder (duplicates are ignored).
 Returns the updated reminder payload (same shape as creation).
 
 **Error states**
+- `403 Forbidden` if the caller lacks the `EDITOR` role for the space.
 - `404 Not Found` if the reminder or files are not found in the space.
 
 ### `DELETE /api/v1/spaces/:spaceId/reminders/:id/files/:fileId`
 Removes a linked file from a reminder and returns the updated reminder.
 
-**Error states**
+- `403 Forbidden` if the caller lacks the `EDITOR` role for the space.
 - `404 Not Found` if the reminder, file, or association does not exist.
 
 ## Sessions
