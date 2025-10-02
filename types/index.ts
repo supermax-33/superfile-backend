@@ -1,5 +1,6 @@
 import { Request } from 'express';
 import { Readable } from 'node:stream';
+import { SpaceMember } from '@prisma/client';
 
 export type OAuthProfile = {
   id: string;
@@ -17,6 +18,7 @@ export type RequestWithUser = Request & {
   user?: {
     userId: string;
   };
+  spaceMembership?: SpaceMember;
 };
 
 export type CreateSessionParams = {
