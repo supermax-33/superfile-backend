@@ -22,6 +22,7 @@ This manual describes the end-to-end behavior of the Superfile backend so new co
 | `SessionModule` | Refresh-session lifecycle APIs and helpers. | Hashes refresh tokens, detects reuse, powers `JwtStrategy` validation. |
 | `SpaceModule` | CRUD for spaces and logos. | Provisions OpenAI vector stores on create, enforces owner permissions via `SpaceRoleGuard`. |
 | `SpaceMemberModule` | Membership management and role enforcement utilities. | Exports `SpaceRoleGuard` + decorator to other modules. |
+| `SpaceInvitationModule` | Invitation lifecycle (create, list, accept/reject). | Generates secure tokens, emails recipients, and grants memberships on acceptance. |
 | `FileModule` | File ingestion, metadata, download, and sharing. | Streams uploads to S3, ingests files into OpenAI vector stores, tracks progress, and manages share links/emails. |
 | `ConversationModule` | AI assistant conversations bound to spaces. | Streams SSE responses from OpenAI with file-search context and persists transcripts. |
 | `ReminderModule` | Space-scoped reminders linked to files. | Enforces editor/manager roles, normalizes linked file associations. |
@@ -40,6 +41,9 @@ A space is a collaborative container owned by a single user. Each space has a hu
 
 ### Space Members & Roles
 Memberships connect users to spaces with a role chosen from `SpaceRole` (`VIEWER`, `EDITOR`, `MANAGER`, `OWNER`). Roles determine privileges across files, reminders, and conversations. The custom `SpaceRoleGuard` inspects route metadata to resolve the relevant space and assert the caller’s role before entering the handler.
+
+### Space Invitations
+Invitations let space owners and managers onboard collaborators securely by email. Each `SpaceInvitation` stores the invited email, inviter, status (`PENDING`, `ACCEPTED`, `REJECTED`, `EXPIRED`), secure token hash, and expiry timestamp. Pending invitations dispatch transactional emails with accept/decline links. Accepting an invitation (while authenticated with the invited email) grants a `VIEWER` membership automatically; declining or expiry updates the status without modifying memberships.
 
 ### Files
 Files belong to spaces and move through `FileStatus` states (`PROCESSING`, `SUCCESS`, `FAILED`). Each record tracks the S3 object key, allowed MIME type (`application/pdf`), upload size (stored as bigint), OpenAI file identifiers, optional note, current error message, and timestamps. Files can be linked to reminders, conversations, and shared externally via tokens.
@@ -78,6 +82,12 @@ Reminders schedule follow-up actions inside a space. Each reminder stores a titl
 - `SpaceMemberService` enforces owner-only management, prevents self-demotion/removal, bans assigning the `OWNER` role, and resolves space IDs when guards need to link resources like files or reminders back to a space.
 - `SpaceRoleGuard` inspects metadata set by the `@RequireSpaceRole` decorator to fetch the relevant space via params, body, query, file, conversation, or reminder associations and injects the membership into `request.spaceMembership` for downstream use.
 
+### Space Invitations (`src/space-invitation`)
+- Owners and managers send invitations via `POST /api/v1/spaces/:spaceId/invitations`; the service normalizes the email, expires stale records, prevents duplicate pending invites, and queues accept/reject emails through `MailService`.
+- `GET /api/v1/spaces/:spaceId/invitations` returns pending and historical invitations (newly expired rows are marked `EXPIRED` on read) so admins can audit outstanding requests.
+- Invitees accept through `POST /api/v1/spaces/invitations/:invitationId/accept?token=...` while authenticated with the invited email. Acceptance creates a `VIEWER` membership if one does not exist and flips the invitation to `ACCEPTED`.
+- Declines hit `POST /api/v1/spaces/invitations/:invitationId/reject?token=...`, updating the status to `REJECTED` without altering memberships.
+
 ### Files & Sharing (`src/file`)
 - **Upload pipeline**: `/files` uses `FilesInterceptor` with in-memory storage, MIME filtering (`ALLOWED_MIME_TYPES` is currently PDF-only), and a 25 MB per-file limit. `FileService.uploadFiles` verifies the caller has `EDITOR` access, creates DB records with `PROCESSING` status, emits progress snapshots via `FileProgressService`, uploads to S3, then ingests the buffer into the space’s OpenAI vector store. Failures capture error messages and mark files `FAILED`.
 - **Listing & metadata**: `/files` (GET) filters by `spaceId` and optional status. `/files/:id/note` lets editors read/update/clear textual notes stored alongside the file.
@@ -100,7 +110,7 @@ Reminders schedule follow-up actions inside a space. Each reminder stores a titl
 - `ReminderService` deduplicates provided file IDs, verifies every file belongs to the space, and serializes responses with embedded file metadata (including file status and timestamps).
 
 ### Mail (`src/mail`)
-- `MailService` centralizes transactional emails with safe HTML formatting and note sanitization. Templates exist for email verification, password reset, and file share notifications (with optional expiry and sender note).
+- `MailService` centralizes transactional emails with safe HTML formatting and note sanitization. Templates exist for email verification, password reset, file share notifications (with optional expiry and sender note), and space invitations (accept/reject links with expiry hints).
 - `ResendService` issues authenticated `fetch` requests to Resend’s `/emails` endpoint using `RESEND_API_KEY`.
 
 ### OpenAI Integration (`src/openai`)
@@ -119,6 +129,7 @@ Reminders schedule follow-up actions inside a space. Each reminder stores a titl
 | `Session` | Refresh session/device. | `refreshTokenHash`, `previousTokenHash`, metadata, `expiresAt`, `revokedAt`, belongs to a `User`. |
 | `Space` | Collaborative container. | `slug`, `ownerId`, `vectorStoreId`, logo relation, files, conversations, reminders, members, `FileShare`. |
 | `SpaceMember` | User-role mapping per space. | `role` enum, unique constraint on (`spaceId`, `userId`). |
+| `SpaceInvitation` | Pending email invitation to a space. | `email`, `invitedBy`, `status`, `tokenHash`, `expiresAt`; links to `Space` + inviting `User`. |
 | `SpaceLogo` | Binary logo storage. | `data` (`Bytes`), `contentType`, SHA-256 `hash`. |
 | `File` | Stored document. | `filename`, `mimetype`, `size`, `status`, `s3Key`, `vectorStoreId`, `openAiFileId`, `note`, reminder links. |
 | `FileShare` | External access token. | `shareToken`, optional `expiresAt`, `note`, belongs to `File` + `Space`. |
@@ -133,6 +144,7 @@ Reminders schedule follow-up actions inside a space. Each reminder stores a titl
 - **Role enforcement**: `@RequireSpaceRole` metadata + `SpaceRoleGuard` authorize requests against the correct space regardless of how the space is referenced (path params, body, related resource). Roles follow an ordered hierarchy (`OWNER` > `MANAGER` > `EDITOR` > `VIEWER`).
 - **File restrictions**: Uploads are limited to PDFs ≤ 25 MB; sanitized S3 keys prevent path traversal. Notes and email content are escaped before embedding into HTML emails.
 - **Share safety**: Share tokens are cryptographically random, and download URLs are presigned with a short (5-minute) TTL. Expired tokens return a 404-style error to avoid hinting at resource existence.
+- **Invitation integrity**: Invitation emails embed SHA-256–hashed tokens (stored server-side) and expire after seven days by default. Acceptance requires authentication with the invited email, preventing unauthorized joins.
 - **Error normalization**: `JwtExceptionFilter` standardizes unauthorized responses, while utility helpers ensure caught integration errors include actionable prefixes for logs.
 
 ## 7. External Services & Environment
@@ -144,6 +156,8 @@ Reminders schedule follow-up actions inside a space. Each reminder stores a titl
 | OpenAI | `OPENAI_API_KEY` | Vector store lifecycle, file ingest, assistant responses. |
 | Resend | `RESEND_API_KEY` | Transactional email delivery. |
 | File share URLs | `FILE_SHARE_BASE_URL` (fallback: `APP_BASE_URL` → `APP_URL` → `FRONTEND_URL`) | Base URL embedded in share emails and API responses. |
+| Space invitation URLs | `SPACE_INVITATION_BASE_URL` (fallback: `APP_BASE_URL` → `APP_URL` → `FRONTEND_URL`) | Base URL for accept/reject links emailed to invitees. |
+| Invitation expiry override | `SPACE_INVITATION_TTL_MS` | Optional override (milliseconds) for invitation validity window (default 7 days). |
 | Google OAuth (optional) | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALLBACK_URL` | Social login configuration and ID token validation. |
 | Other configuration | See `config.ts` constants | OTP length/TTL, JWT lifetimes, file constraints, vector store naming prefix. |
 
@@ -164,7 +178,7 @@ Ensure `.env` is created from `.env.example`, populate these values, and keep se
 3. **Space creation & membership**
    1. Authenticated owner calls `POST /api/v1/spaces` with name + slug.
    2. Service provisions an OpenAI vector store, creates the space, and inserts the owner membership.
-   3. Owner invites teammates via `POST /spaces/:spaceId/members`, assigning roles (`VIEWER` default).
+   3. Owners/managers invite teammates via `POST /spaces/:spaceId/invitations`; invitees accept through the emailed tokenized link (or decline). Direct member insertion via `POST /spaces/:spaceId/members` remains available for existing accounts.
    4. Role-guarded routes enforce capabilities (e.g., only `MANAGER`+ can delete files or conversations).
 
 4. **File ingest & sharing**

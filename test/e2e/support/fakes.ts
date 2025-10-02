@@ -17,6 +17,15 @@ export class FakeMailService {
     [];
   public readonly passwordResetEmails: Array<{ email: string; code: string }> =
     [];
+  public readonly spaceInvitationEmails: Array<{
+    email: string;
+    spaceName: string;
+    inviterName: string;
+    acceptUrl: string;
+    rejectUrl: string;
+    existingUser: boolean;
+    expiresAt: Date;
+  }> = [];
 
   async sendVerificationEmail(email: string, code: string) {
     this.verificationEmails.push({ email, code });
@@ -24,6 +33,18 @@ export class FakeMailService {
 
   async sendPasswordResetEmail(email: string, code: string) {
     this.passwordResetEmails.push({ email, code });
+  }
+
+  async sendSpaceInvitationEmail(options: {
+    email: string;
+    spaceName: string;
+    inviterName: string;
+    acceptUrl: string;
+    rejectUrl: string;
+    existingUser: boolean;
+    expiresAt: Date;
+  }): Promise<void> {
+    this.spaceInvitationEmails.push(options);
   }
 }
 

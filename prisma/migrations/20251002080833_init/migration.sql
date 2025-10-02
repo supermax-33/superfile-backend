@@ -10,6 +10,9 @@ CREATE TYPE "public"."ConversationRole" AS ENUM ('USER', 'ASSISTANT');
 -- CreateEnum
 CREATE TYPE "public"."SpaceRole" AS ENUM ('viewer', 'editor', 'manager', 'owner');
 
+-- CreateEnum
+CREATE TYPE "public"."InvitationStatus" AS ENUM ('PENDING', 'ACCEPTED', 'REJECTED', 'EXPIRED');
+
 -- CreateTable
 CREATE TABLE "public"."User" (
     "id" TEXT NOT NULL,
@@ -72,6 +75,21 @@ CREATE TABLE "public"."SpaceMember" (
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "SpaceMember_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "public"."SpaceInvitation" (
+    "id" TEXT NOT NULL,
+    "spaceId" TEXT NOT NULL,
+    "email" VARCHAR(255) NOT NULL,
+    "invitedBy" TEXT NOT NULL,
+    "status" "public"."InvitationStatus" NOT NULL DEFAULT 'PENDING',
+    "tokenHash" VARCHAR(64) NOT NULL,
+    "expiresAt" TIMESTAMP(3) NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "SpaceInvitation_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -213,6 +231,15 @@ CREATE INDEX "Space_ownerId_idx" ON "public"."Space"("ownerId");
 CREATE UNIQUE INDEX "IX_SpaceMember_spaceId_userId" ON "public"."SpaceMember"("spaceId", "userId");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "SpaceInvitation_tokenHash_key" ON "public"."SpaceInvitation"("tokenHash");
+
+-- CreateIndex
+CREATE INDEX "SpaceInvitation_spaceId_status_idx" ON "public"."SpaceInvitation"("spaceId", "status");
+
+-- CreateIndex
+CREATE INDEX "SpaceInvitation_spaceId_email_idx" ON "public"."SpaceInvitation"("spaceId", "email");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "SpaceLogo_spaceId_key" ON "public"."SpaceLogo"("spaceId");
 
 -- CreateIndex
@@ -265,6 +292,12 @@ ALTER TABLE "public"."SpaceMember" ADD CONSTRAINT "SpaceMember_spaceId_fkey" FOR
 
 -- AddForeignKey
 ALTER TABLE "public"."SpaceMember" ADD CONSTRAINT "SpaceMember_userId_fkey" FOREIGN KEY ("userId") REFERENCES "public"."User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "public"."SpaceInvitation" ADD CONSTRAINT "SpaceInvitation_spaceId_fkey" FOREIGN KEY ("spaceId") REFERENCES "public"."Space"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "public"."SpaceInvitation" ADD CONSTRAINT "SpaceInvitation_invitedBy_fkey" FOREIGN KEY ("invitedBy") REFERENCES "public"."User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "public"."SpaceLogo" ADD CONSTRAINT "SpaceLogo_spaceId_fkey" FOREIGN KEY ("spaceId") REFERENCES "public"."Space"("id") ON DELETE CASCADE ON UPDATE CASCADE;

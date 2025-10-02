@@ -7,6 +7,7 @@ import { FileModule } from './file/file.module';
 import { ConversationModule } from './conversation/conversation.module';
 import { ReminderModule } from './reminder/reminder.module';
 import { SpaceMemberModule } from './space-member/space-member.module';
+import { SpaceInvitationModule } from './space-invitation/space-invitation.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { SpaceMemberModule } from './space-member/space-member.module';
     AuthModule,
     SpaceModule,
     SpaceMemberModule,
+    SpaceInvitationModule,
     SessionModule,
     FileModule,
     ConversationModule,

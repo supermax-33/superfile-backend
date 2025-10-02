@@ -3,7 +3,6 @@ import { Test, TestingModuleBuilder } from '@nestjs/testing';
 import * as request from 'supertest';
 import { resolve } from 'path';
 import { execSync } from 'child_process';
-import * as bcrypt from 'bcrypt';
 import { AppModule } from '../../src/app.module';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { MailService } from '../../src/mail/mail.service';
@@ -280,32 +279,84 @@ describe('Superfile API (e2e)', () => {
 
     const collaboratorEmail = `collab.user+${slugSuffix}@example.com`;
     const collaboratorPassword = 'CollabPass1!';
-    const collaboratorHash = await bcrypt.hash(collaboratorPassword, 10);
 
-    const collaborator = await prismaClient.user.create({
-      data: {
-        email: collaboratorEmail,
-        passwordHash: collaboratorHash,
-        emailVerified: true,
-      },
-    });
-
-    const addMemberRes = await api
-      .post(`/api/v1/spaces/${spaceId}/members`)
+    const invitationRes = await api
+      .post(`/api/v1/spaces/${spaceId}/invitations`)
       .set('Authorization', `Bearer ${accessToken}`)
-      .send({ userId: collaborator.id })
+      .send({ email: collaboratorEmail })
       .expect(201);
-    expect(addMemberRes.body.role).toBe('VIEWER');
+    expect(invitationRes.body.status).toBe('PENDING');
 
-    const membersList = await api
-      .get(`/api/v1/spaces/${spaceId}/members`)
+    const invitationsList = await api
+      .get(`/api/v1/spaces/${spaceId}/invitations`)
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(200);
     expect(
-      membersList.body.some(
-        (member: any) => member.userId === collaborator.id,
+      invitationsList.body.some(
+        (invitation: any) => invitation.id === invitationRes.body.id,
       ),
     ).toBe(true);
+
+    const invitationMail = mailService.spaceInvitationEmails.find(
+      (mail) => mail.email === collaboratorEmail,
+    );
+    expect(invitationMail).toBeDefined();
+
+    const acceptUrl = new URL(invitationMail!.acceptUrl);
+    const acceptPathSegments = acceptUrl.pathname.split('/').filter(Boolean);
+    const invitationIdFromUrl =
+      acceptPathSegments[acceptPathSegments.length - 2];
+    const invitationToken = acceptUrl.searchParams.get('token');
+    expect(invitationToken).toBeTruthy();
+    expect(invitationIdFromUrl).toBe(invitationRes.body.id);
+
+    const rejectedEmail = `reject.user+${slugSuffix}@example.com`;
+    const rejectedInvitationRes = await api
+      .post(`/api/v1/spaces/${spaceId}/invitations`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ email: rejectedEmail })
+      .expect(201);
+
+    const rejectedMail = mailService.spaceInvitationEmails.find(
+      (mail) => mail.email === rejectedEmail,
+    );
+    expect(rejectedMail).toBeDefined();
+    const rejectUrl = new URL(rejectedMail!.rejectUrl);
+    const rejectToken = rejectUrl.searchParams.get('token');
+    expect(rejectToken).toBeTruthy();
+
+    await api
+      .post(
+        `/api/v1/spaces/invitations/${rejectedInvitationRes.body.id}/reject`,
+      )
+      .query({ token: rejectToken })
+      .expect(201);
+
+    const invitationsAfterReject = await api
+      .get(`/api/v1/spaces/${spaceId}/invitations`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+    const rejectedInvitation = invitationsAfterReject.body.find(
+      (invitation: any) => invitation.id === rejectedInvitationRes.body.id,
+    );
+    expect(rejectedInvitation.status).toBe('REJECTED');
+
+    await api
+      .post('/api/v1/auth/signup')
+      .send({ email: collaboratorEmail, password: collaboratorPassword })
+      .expect(201);
+
+    const collaboratorVerification =
+      await prismaClient.verificationToken.findFirst({
+        where: { user: { email: collaboratorEmail } },
+        orderBy: { createdAt: 'desc' },
+      });
+    expect(collaboratorVerification).toBeTruthy();
+
+    await api
+      .post('/api/v1/auth/verify-email')
+      .send({ code: collaboratorVerification!.verificationToken })
+      .expect(201);
 
     const collaboratorLogin = await api
       .post('/api/v1/auth/login')
@@ -313,6 +364,33 @@ describe('Superfile API (e2e)', () => {
       .expect(201);
     const collaboratorAccessToken = collaboratorLogin.body
       .accessToken as string;
+
+    const acceptRes = await api
+      .post(`/api/v1/spaces/invitations/${invitationRes.body.id}/accept`)
+      .set('Authorization', `Bearer ${collaboratorAccessToken}`)
+      .query({ token: invitationToken })
+      .expect(201);
+    expect(acceptRes.body.status).toBe('ACCEPTED');
+
+    const invitationsAfterAccept = await api
+      .get(`/api/v1/spaces/${spaceId}/invitations`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+    const acceptedInvitation = invitationsAfterAccept.body.find(
+      (invitation: any) => invitation.id === invitationRes.body.id,
+    );
+    expect(acceptedInvitation.status).toBe('ACCEPTED');
+
+    const membersList = await api
+      .get(`/api/v1/spaces/${spaceId}/members`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+    const collaboratorMember = membersList.body.find(
+      (member: any) => member.user.email === collaboratorEmail,
+    );
+    expect(collaboratorMember).toBeDefined();
+    expect(collaboratorMember.role).toBe('VIEWER');
+    const collaboratorMemberId = collaboratorMember.id as string;
 
     await api
       .post('/api/v1/files')
@@ -322,13 +400,13 @@ describe('Superfile API (e2e)', () => {
       .expect(403);
 
     await api
-      .patch(`/api/v1/spaces/${spaceId}/members/${addMemberRes.body.id}`)
+      .patch(`/api/v1/spaces/${spaceId}/members/${collaboratorMemberId}`)
       .set('Authorization', `Bearer ${accessToken}`)
       .send({ role: 'EDITOR' })
       .expect(200);
 
     await api
-      .patch(`/api/v1/spaces/${spaceId}/members/${addMemberRes.body.id}`)
+      .patch(`/api/v1/spaces/${spaceId}/members/${collaboratorMemberId}`)
       .set('Authorization', `Bearer ${collaboratorAccessToken}`)
       .send({ role: 'MANAGER' })
       .expect(403);
@@ -348,7 +426,7 @@ describe('Superfile API (e2e)', () => {
       .expect(403);
 
     await api
-      .patch(`/api/v1/spaces/${spaceId}/members/${addMemberRes.body.id}`)
+      .patch(`/api/v1/spaces/${spaceId}/members/${collaboratorMemberId}`)
       .set('Authorization', `Bearer ${accessToken}`)
       .send({ role: 'MANAGER' })
       .expect(200);

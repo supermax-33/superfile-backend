@@ -193,6 +193,51 @@ When the delete call succeeds the record is removed from Prisma, the object is p
 
 ---
 
+# Testing Space Invitations
+
+Space invitations live under the `/v1/spaces` namespace and require manager-level membership. The examples below assume you have a valid access token for a manager/owner and know the target space ID.
+
+## Invite a Collaborator
+
+```bash
+curl -X POST http://localhost:3000/v1/spaces/<SPACE_ID>/invitations \
+  -H 'Authorization: Bearer <ACCESS_TOKEN>' \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"invitee@example.com"}'
+```
+
+The response echoes the invitation metadata (including expiry). An email will be sent via Resend containing accept/reject links.
+
+## List Invitations for a Space
+
+```bash
+curl -X GET http://localhost:3000/v1/spaces/<SPACE_ID>/invitations \
+  -H 'Authorization: Bearer <ACCESS_TOKEN>'
+```
+
+Pending invitations with an `expiresAt` in the past will be marked `EXPIRED` automatically.
+
+## Accept an Invitation
+
+After logging in as the invited user, hit the accept endpoint with the `token` query parameter from the email link:
+
+```bash
+curl -X POST "http://localhost:3000/v1/spaces/invitations/<INVITATION_ID>/accept?token=<TOKEN>" \
+  -H 'Authorization: Bearer <ACCESS_TOKEN>'
+```
+
+Acceptance provisions a `VIEWER` membership if one does not already exist.
+
+## Reject an Invitation
+
+```bash
+curl -X POST "http://localhost:3000/v1/spaces/invitations/<INVITATION_ID>/reject?token=<TOKEN>"
+```
+
+No authentication is required to reject; the token alone is sufficient to mark the invitation declined.
+
+---
+
 ## End-to-end Test Modes
 
 - Run `pnpm test:e2e` to exercise the happy-path workflow with in-memory fakes for S3 uploads, OpenAI vector stores, and streaming (fast, deterministic).

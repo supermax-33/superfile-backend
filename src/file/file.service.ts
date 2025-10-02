@@ -550,9 +550,7 @@ export class FileService {
     }
 
     if (missing.length) {
-      throw new NotFoundException(
-        `Files not found: ${missing.join(', ')}`,
-      );
+      throw new NotFoundException(`Files not found: ${missing.join(', ')}`);
     }
 
     if (forbidden.length) {

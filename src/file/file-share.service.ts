@@ -214,11 +214,7 @@ export class FileShareService {
       throw new NotFoundException('File not found.');
     }
 
-    await this.spaceMembers.assertRole(
-      file.spaceId,
-      userId,
-      SpaceRole.EDITOR,
-    );
+    await this.spaceMembers.assertRole(file.spaceId, userId, SpaceRole.EDITOR);
 
     return file;
   }
