@@ -29,6 +29,13 @@ enum ConversationRole {
   ASSISTANT
 }
 
+enum SpaceRole {
+  VIEWER  @map("viewer")
+  EDITOR  @map("editor")
+  MANAGER @map("manager")
+  OWNER   @map("owner")
+}
+
 model User {
   id            String       @id @default(uuid())
   email         String       @unique
@@ -44,6 +51,7 @@ model User {
   resetTokens        PasswordResetToken[]
   sessions           Session[]
   spaces             Space[]
+  spaceMemberships   SpaceMember[]
 }
 
 model VerificationToken {
@@ -85,11 +93,26 @@ model Space {
   files         File[]
   conversations Conversation[]
   reminders     Reminder[]
+  members       SpaceMember[]
 
   owner     User        @relation(fields: [ownerId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   FileShare FileShare[]
 
   @@index([ownerId])
+}
+
+model SpaceMember {
+  id        String    @id @default(uuid())
+  spaceId   String    @db.Uuid
+  userId    String    @db.Uuid
+  role      SpaceRole @default(VIEWER)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  space Space @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([spaceId, userId], map: "IX_SpaceMember_spaceId_userId")
 }
 
 model SpaceLogo {

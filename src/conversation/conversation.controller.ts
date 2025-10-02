@@ -22,6 +22,9 @@ import { CreateConversationDto } from './dto/create-conversation.dto';
 import { ConversationResponseDto } from './dto/conversation-response.dto';
 import { ConversationMessageResponseDto } from './dto/conversation-message-response.dto';
 import { SendMessageDto } from './dto/send-message.dto';
+import { RequireSpaceRole } from '../space-member/decorators/require-space-role.decorator';
+import { SpaceRoleGuard } from '../space-member/guards/space-role.guard';
+import { SpaceRole } from '@prisma/client';
 @Controller()
 @UseFilters(JwtExceptionFilter)
 @UseGuards(JwtAuthGuard)
@@ -38,6 +41,8 @@ export class ConversationController {
 
   @Version('1')
   @Post('spaces/:spaceId/conversations')
+  @UseGuards(SpaceRoleGuard)
+  @RequireSpaceRole(SpaceRole.EDITOR, { spaceIdParam: 'spaceId' })
   async createConversation(
     @Req() request: RequestWithUser,
     @Param('spaceId', new ParseUUIDPipe()) spaceId: string,
@@ -49,6 +54,8 @@ export class ConversationController {
 
   @Version('1')
   @Get('spaces/:spaceId/conversations')
+  @UseGuards(SpaceRoleGuard)
+  @RequireSpaceRole(SpaceRole.VIEWER, { spaceIdParam: 'spaceId' })
   async listConversations(
     @Req() request: RequestWithUser,
     @Param('spaceId', new ParseUUIDPipe()) spaceId: string,
@@ -59,6 +66,8 @@ export class ConversationController {
 
   @Version('1')
   @Get('conversations/:id/messages')
+  @UseGuards(SpaceRoleGuard)
+  @RequireSpaceRole(SpaceRole.VIEWER, { conversationIdParam: 'id' })
   async getConversationMessages(
     @Param('id', new ParseUUIDPipe()) conversationId: string,
     @Req() request: RequestWithUser,
@@ -69,6 +78,8 @@ export class ConversationController {
 
   @Version('1')
   @Post('conversations/:id/messages')
+  @UseGuards(SpaceRoleGuard)
+  @RequireSpaceRole(SpaceRole.EDITOR, { conversationIdParam: 'id' })
   @Header('Content-Type', 'text/event-stream')
   @Header('Cache-Control', 'no-cache')
   @Header('Connection', 'keep-alive')
@@ -83,6 +94,8 @@ export class ConversationController {
 
   @Version('1')
   @Delete('conversations/:id')
+  @UseGuards(SpaceRoleGuard)
+  @RequireSpaceRole(SpaceRole.MANAGER, { conversationIdParam: 'id' })
   async deleteConversation(
     @Param('id', new ParseUUIDPipe()) conversationId: string,
     @Req() request: RequestWithUser,

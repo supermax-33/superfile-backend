@@ -22,6 +22,9 @@ import { CreateReminderDto } from './dto/create-reminder.dto';
 import { ReminderResponseDto } from './dto/reminder-response.dto';
 import { UpdateReminderDto } from './dto/update-reminder.dto';
 import { AddReminderFilesDto } from './dto/add-reminder-files.dto';
+import { RequireSpaceRole } from '../space-member/decorators/require-space-role.decorator';
+import { SpaceRoleGuard } from '../space-member/guards/space-role.guard';
+import { SpaceRole } from '@prisma/client';
 import { RequestWithUser } from 'types';
 
 @UseGuards(JwtAuthGuard)
@@ -32,6 +35,8 @@ export class ReminderController {
 
   @Version('1')
   @Post()
+  @UseGuards(SpaceRoleGuard)
+  @RequireSpaceRole(SpaceRole.EDITOR, { spaceIdParam: 'spaceId' })
   async create(
     @Body() dto: CreateReminderDto,
     @Request() req: RequestWithUser,
@@ -43,6 +48,8 @@ export class ReminderController {
 
   @Version('1')
   @Get()
+  @UseGuards(SpaceRoleGuard)
+  @RequireSpaceRole(SpaceRole.VIEWER, { spaceIdParam: 'spaceId' })
   async list(
     @Request() req: RequestWithUser,
     @Param('spaceId', new ParseUUIDPipe()) spaceId: string,
@@ -53,6 +60,8 @@ export class ReminderController {
 
   @Version('1')
   @Get(':id')
+  @UseGuards(SpaceRoleGuard)
+  @RequireSpaceRole(SpaceRole.VIEWER, { spaceIdParam: 'spaceId' })
   async findOne(
     @Request() req: RequestWithUser,
     @Param('spaceId', new ParseUUIDPipe()) spaceId: string,
@@ -64,6 +73,8 @@ export class ReminderController {
 
   @Version('1')
   @Patch(':id')
+  @UseGuards(SpaceRoleGuard)
+  @RequireSpaceRole(SpaceRole.EDITOR, { spaceIdParam: 'spaceId' })
   async update(
     @Request() req: RequestWithUser,
     @Param('spaceId', new ParseUUIDPipe()) spaceId: string,
@@ -82,6 +93,8 @@ export class ReminderController {
   @Version('1')
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @UseGuards(SpaceRoleGuard)
+  @RequireSpaceRole(SpaceRole.MANAGER, { spaceIdParam: 'spaceId' })
   async remove(
     @Request() req: RequestWithUser,
     @Param('spaceId', new ParseUUIDPipe()) spaceId: string,
@@ -93,6 +106,8 @@ export class ReminderController {
 
   @Version('1')
   @Post(':id/files')
+  @UseGuards(SpaceRoleGuard)
+  @RequireSpaceRole(SpaceRole.EDITOR, { spaceIdParam: 'spaceId' })
   async addFiles(
     @Request() req: RequestWithUser,
     @Param('spaceId', new ParseUUIDPipe()) spaceId: string,
@@ -110,6 +125,8 @@ export class ReminderController {
 
   @Version('1')
   @Delete(':id/files/:fileId')
+  @UseGuards(SpaceRoleGuard)
+  @RequireSpaceRole(SpaceRole.EDITOR, { spaceIdParam: 'spaceId' })
   async removeFile(
     @Request() req: RequestWithUser,
     @Param('spaceId', new ParseUUIDPipe()) spaceId: string,

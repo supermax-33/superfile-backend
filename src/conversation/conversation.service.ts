@@ -12,6 +12,7 @@ import {
   ConversationRole,
   FileStatus,
   Prisma,
+  SpaceRole,
 } from '@prisma/client';
 import { Observable } from 'rxjs';
 import OpenAI from 'openai';
@@ -24,6 +25,7 @@ import {
 } from './dto/conversation-message-response.dto';
 import { FilePresignedUrlService } from '../file/presigned-url.service';
 import { OPENAI_CLIENT_TOKEN } from '../openai/openai.tokens';
+import { SpaceMemberService } from '../space-member/space-member.service';
 
 const FALLBACK_NO_FILES_MESSAGE =
   'No files are present to answer your question. Please upload files first.';
@@ -51,6 +53,7 @@ export class ConversationService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly spaceMembers: SpaceMemberService,
     private readonly fileUrls: FilePresignedUrlService,
     @Inject(OPENAI_CLIENT_TOKEN) private readonly openai: OpenAI,
   ) {}
@@ -60,7 +63,11 @@ export class ConversationService {
     spaceId: string,
     title?: string,
   ): Promise<ConversationResponseDto> {
-    await this.ensureSpaceAccess(spaceId, userId);
+    await this.spaceMembers.assertRoleForSpace(
+      userId,
+      spaceId,
+      SpaceRole.EDITOR,
+    );
 
     const conversation = await this.prisma.conversation.create({
       data: {
@@ -77,7 +84,11 @@ export class ConversationService {
     userId: string,
     spaceId: string,
   ): Promise<ConversationResponseDto[]> {
-    await this.ensureSpaceAccess(spaceId, userId);
+    await this.spaceMembers.assertRoleForSpace(
+      userId,
+      spaceId,
+      SpaceRole.VIEWER,
+    );
 
     const conversations = await this.prisma.conversation.findMany({
       where: { spaceId },
@@ -96,6 +107,7 @@ export class ConversationService {
     const conversation = await this.ensureConversationAccess(
       conversationId,
       userId,
+      SpaceRole.VIEWER,
     );
 
     const messages = await this.prisma.conversationMessage.findMany({
@@ -137,6 +149,7 @@ export class ConversationService {
         const conversation = await this.ensureConversationAccess(
           conversationId,
           userId,
+          SpaceRole.EDITOR,
         );
 
         const { spaceId } = conversation;
@@ -275,7 +288,11 @@ export class ConversationService {
     conversationId: string,
     userId: string,
   ): Promise<void> {
-    await this.ensureConversationAccess(conversationId, userId);
+    await this.ensureConversationAccess(
+      conversationId,
+      userId,
+      SpaceRole.MANAGER,
+    );
     await this.prisma.conversation.delete({ where: { id: conversationId } });
   }
 
@@ -333,41 +350,23 @@ export class ConversationService {
   private async ensureConversationAccess(
     conversationId: string,
     userId: string,
-  ): Promise<Conversation & { space: { ownerId: string } }> {
+    requiredRole: SpaceRole,
+  ): Promise<Conversation> {
     const conversation = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
-      include: { space: { select: { ownerId: true } } },
     });
 
     if (!conversation) {
       throw new NotFoundException('Conversation not found.');
     }
 
-    if (conversation.space.ownerId !== userId) {
-      throw new ForbiddenException(
-        'You do not have access to this conversation.',
-      );
-    }
+    await this.spaceMembers.assertRoleForSpace(
+      userId,
+      conversation.spaceId,
+      requiredRole,
+    );
 
     return conversation;
-  }
-
-  private async ensureSpaceAccess(
-    spaceId: string,
-    userId: string,
-  ): Promise<void> {
-    const space = await this.prisma.space.findUnique({
-      where: { id: spaceId },
-      select: { ownerId: true },
-    });
-
-    if (!space) {
-      throw new NotFoundException('Space not found.');
-    }
-
-    if (space.ownerId !== userId) {
-      throw new ForbiddenException('You do not have access to this space.');
-    }
   }
 
   private async hydrateMessage(

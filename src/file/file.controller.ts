@@ -28,7 +28,6 @@ import { JwtExceptionFilter } from 'src/auth/filters/jwt-exception.filter';
 import { FileResponseDto } from './dto/file-response.dto';
 import { FileNoteResponseDto } from './dto/file-note-response.dto';
 import { ListFilesQueryDto } from './dto/list-files-query.dto';
-import { FileOwnerGuard } from './guards/file-owner.guard';
 import { FileService } from './file.service';
 import { UploadFilesDto } from './dto/upload-files.dto';
 import { RequestWithUser } from 'types';
@@ -47,6 +46,9 @@ import {
   FILE_UPLOAD_FIELD,
   MAX_FILE_SIZE_BYTES,
 } from 'config';
+import { SpaceRoleGuard } from '../space-member/guards/space-role.guard';
+import { RequireSpaceRole } from '../space-member/decorators/require-space-role.decorator';
+import { SpaceRole } from '@prisma/client';
 
 const uploadInterceptor = FilesInterceptor(FILE_UPLOAD_FIELD, undefined, {
   storage: memoryStorage(),
@@ -80,6 +82,8 @@ export class FileController {
 
   @Version('1')
   @Post()
+  @UseGuards(SpaceRoleGuard)
+  @RequireSpaceRole(SpaceRole.EDITOR, { spaceIdBodyField: 'spaceId' })
   @UseInterceptors(uploadInterceptor)
   async upload(
     @Req() request: RequestWithUser,
@@ -108,7 +112,8 @@ export class FileController {
 
   @Version('1')
   @Get(':id')
-  @UseGuards(FileOwnerGuard)
+  @UseGuards(SpaceRoleGuard)
+  @RequireSpaceRole(SpaceRole.VIEWER, { fileIdParam: 'id' })
   async download(
     @Param('id') fileId: string,
     @Req() request: RequestWithUser,
@@ -134,7 +139,8 @@ export class FileController {
 
   @Version('1')
   @Get(':id/note')
-  @UseGuards(FileOwnerGuard)
+  @UseGuards(SpaceRoleGuard)
+  @RequireSpaceRole(SpaceRole.VIEWER, { fileIdParam: 'id' })
   async getNote(
     @Param('id') fileId: string,
     @Req() request: RequestWithUser,
@@ -145,7 +151,8 @@ export class FileController {
 
   @Version('1')
   @Patch(':id/note')
-  @UseGuards(FileOwnerGuard)
+  @UseGuards(SpaceRoleGuard)
+  @RequireSpaceRole(SpaceRole.EDITOR, { fileIdParam: 'id' })
   async updateNote(
     @Param('id') fileId: string,
     @Req() request: RequestWithUser,
@@ -157,7 +164,8 @@ export class FileController {
 
   @Version('1')
   @Delete(':id/note')
-  @UseGuards(FileOwnerGuard)
+  @UseGuards(SpaceRoleGuard)
+  @RequireSpaceRole(SpaceRole.EDITOR, { fileIdParam: 'id' })
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteNote(
     @Param('id') fileId: string,
@@ -169,7 +177,8 @@ export class FileController {
 
   @Version('1')
   @Get(':id/progress')
-  @UseGuards(FileOwnerGuard)
+  @UseGuards(SpaceRoleGuard)
+  @RequireSpaceRole(SpaceRole.VIEWER, { fileIdParam: 'id' })
   async progress(
     @Param('id') fileId: string,
     @Req() request: RequestWithUser,
@@ -180,7 +189,8 @@ export class FileController {
 
   @Version('1')
   @Patch(':id/status')
-  @UseGuards(FileOwnerGuard)
+  @UseGuards(SpaceRoleGuard)
+  @RequireSpaceRole(SpaceRole.EDITOR, { fileIdParam: 'id' })
   async refreshStatus(
     @Param('id') fileId: string,
     @Req() request: RequestWithUser,
@@ -213,7 +223,8 @@ export class FileController {
 
   @Version('1')
   @Delete(':id')
-  @UseGuards(FileOwnerGuard)
+  @UseGuards(SpaceRoleGuard)
+  @RequireSpaceRole(SpaceRole.MANAGER, { fileIdParam: 'id' })
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(
     @Param('id') fileId: string,

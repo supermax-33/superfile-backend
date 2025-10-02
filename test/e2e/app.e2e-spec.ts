@@ -3,6 +3,7 @@ import { Test, TestingModuleBuilder } from '@nestjs/testing';
 import * as request from 'supertest';
 import { resolve } from 'path';
 import { execSync } from 'child_process';
+import * as bcrypt from 'bcrypt';
 import { AppModule } from '../../src/app.module';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { MailService } from '../../src/mail/mail.service';
@@ -241,6 +242,38 @@ describe('Superfile API (e2e)', () => {
     expect(spaceId).toBeDefined();
     persistLog('Primary space created for workflow', { spaceId, slugSuffix });
 
+    const collaboratorEmail = `collaborator+${slugSuffix}@example.com`;
+    const collaboratorPassword = 'CollabP@ss!1';
+    const collaborator = await prismaClient.user.create({
+      data: {
+        email: collaboratorEmail,
+        passwordHash: await bcrypt.hash(collaboratorPassword, 10),
+        emailVerified: true,
+      },
+    });
+
+    const addMemberRes = await api
+      .post(`/api/v1/spaces/${spaceId}/members`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ userId: collaborator.id, role: 'viewer' })
+      .expect(201);
+    const memberId = addMemberRes.body.id as string;
+    expect(addMemberRes.body.role).toBe('viewer');
+
+    const listMembersRes = await api
+      .get(`/api/v1/spaces/${spaceId}/members`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+    expect(Array.isArray(listMembersRes.body)).toBe(true);
+    expect(listMembersRes.body.length).toBeGreaterThanOrEqual(2);
+
+    const collaboratorLogin = await api
+      .post('/api/v1/auth/login')
+      .send({ email: collaboratorEmail, password: collaboratorPassword })
+      .expect(201);
+    const collaboratorAccessToken = collaboratorLogin.body
+      .accessToken as string;
+
     await api
       .get(`/api/v1/spaces/${spaceId}`)
       .set('Authorization', `Bearer ${accessToken}`)
@@ -312,6 +345,64 @@ describe('Superfile API (e2e)', () => {
       .query({ spaceId })
       .expect(200);
     expect(listFilesRes.body.length).toBeGreaterThanOrEqual(3);
+
+    const viewerListRes = await api
+      .get('/api/v1/files')
+      .set('Authorization', `Bearer ${collaboratorAccessToken}`)
+      .query({ spaceId })
+      .expect(200);
+    expect(viewerListRes.body.length).toBeGreaterThanOrEqual(3);
+
+    await api
+      .post('/api/v1/files')
+      .set('Authorization', `Bearer ${collaboratorAccessToken}`)
+      .field('spaceId', spaceId)
+      .attach('files', pdfPath)
+      .expect(403);
+
+    const updateMemberEditorRes = await api
+      .patch(`/api/v1/spaces/${spaceId}/members/${memberId}`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ role: 'editor' })
+      .expect(200);
+    expect(updateMemberEditorRes.body.role).toBe('editor');
+
+    const collaboratorUploadRes = await api
+      .post('/api/v1/files')
+      .set('Authorization', `Bearer ${collaboratorAccessToken}`)
+      .field('spaceId', spaceId)
+      .attach('files', pdfPath)
+      .expect(201);
+    const collaboratorFile = collaboratorUploadRes.body[0];
+    expect(collaboratorFile).toBeDefined();
+
+    await api
+      .delete(`/api/v1/files/${fileC.id}`)
+      .set('Authorization', `Bearer ${collaboratorAccessToken}`)
+      .expect(403);
+
+    const promoteMemberRes = await api
+      .patch(`/api/v1/spaces/${spaceId}/members/${memberId}`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ role: 'manager' })
+      .expect(200);
+    expect(promoteMemberRes.body.role).toBe('manager');
+
+    await api
+      .delete(`/api/v1/files/${collaboratorFile.id}`)
+      .set('Authorization', `Bearer ${collaboratorAccessToken}`)
+      .expect(204);
+
+    await api
+      .delete(`/api/v1/spaces/${spaceId}/members/${memberId}`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(204);
+
+    await api
+      .get('/api/v1/files')
+      .set('Authorization', `Bearer ${collaboratorAccessToken}`)
+      .query({ spaceId })
+      .expect(403);
 
     await api
       .get(`/api/v1/files/${fileA.id}`)

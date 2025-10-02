@@ -5,7 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { Space, SpaceLogo } from '@prisma/client';
+import { Space, SpaceLogo, SpaceRole } from '@prisma/client';
 import { createHash, randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateSpaceDto } from './dto/create-space.dto';
@@ -67,14 +67,26 @@ export class SpaceService {
     }
 
     try {
-      const space = await this.prisma.space.create({
-        data: {
-          name: normalizedName,
-          slug: normalizedSlug,
-          ownerId,
-          vectorStoreId,
-        },
-        include: { logo: { select: { contentType: true, hash: true } } },
+      const space = await this.prisma.$transaction(async (tx) => {
+        const created = await tx.space.create({
+          data: {
+            name: normalizedName,
+            slug: normalizedSlug,
+            ownerId,
+            vectorStoreId,
+          },
+          include: { logo: { select: { contentType: true, hash: true } } },
+        });
+
+        await tx.spaceMember.create({
+          data: {
+            spaceId: created.id,
+            userId: ownerId,
+            role: SpaceRole.OWNER,
+          },
+        });
+
+        return created;
       });
 
       return this.toSpaceResponse(space);
@@ -187,15 +199,6 @@ export class SpaceService {
     }
 
     return this.toSpaceResponse(space);
-  }
-
-  async getSpaceOwnerId(spaceId: string): Promise<string> {
-    const space = await this.prisma.space.findUnique({
-      where: { id: spaceId },
-      select: { ownerId: true },
-    });
-
-    return space?.ownerId;
   }
 
   private buildVectorStoreName(slug: string): string {

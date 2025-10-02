@@ -251,7 +251,7 @@ Exchanges a Google ID token (used by native/mobile clients) for first-party JWTs
 
 ## Spaces
 
-All space routes require an authenticated owner context via `JwtAuthGuard`. The owner-only guard enforces that the caller owns the targeted space.
+All space routes require an authenticated space member. Mutating operations (update, delete, logo upload) require the caller to hold the `owner` role for the target space. The authenticated owner who creates a space is automatically added as a member with the `owner` role.
 
 ### `POST /api/v1/spaces`
 Creates a new space and provisions an OpenAI vector store for file search.
@@ -326,9 +326,29 @@ Uploads or replaces the space logo via `multipart/form-data` (`file` field) and 
 - `400 Bad Request` when no file is attached.
 - `404 Not Found` if the space cannot be loaded after upload.
 
+### `GET /api/v1/spaces/:spaceId/members`
+Lists all members assigned to a space along with their roles. Requires the caller to have the `owner` role.
+
+### `POST /api/v1/spaces/:spaceId/members`
+Adds a user to the space with a specific role. Requires the caller to have the `owner` role.
+
+**Request**
+```json
+{
+  "userId": "target-user-id",
+  "role": "viewer"
+}
+```
+
+### `PATCH /api/v1/spaces/:spaceId/members/:memberId`
+Updates the role for an existing member. Only the `owner` can modify roles, and the `owner` role itself cannot be reassigned to another user.
+
+### `DELETE /api/v1/spaces/:spaceId/members/:memberId`
+Removes a member from the space. Owners cannot remove themselves. Returns `204 No Content` on success and requires `owner` privileges.
+
 ## Files
 
-All routes are JWT-protected. Uploads accept MIME types defined by `ALLOWED_MIME_TYPES` (pdf for now) and are size-limited by `MAX_FILE_SIZE_BYTES` (25MB for now). Ownership checks ensure files and spaces belong to the caller.
+All routes are JWT-protected. Uploads accept MIME types defined by `ALLOWED_MIME_TYPES` (pdf for now) and are size-limited by `MAX_FILE_SIZE_BYTES` (25MB for now). File access is enforced by space roles: `viewer` can read metadata/download, `editor` can upload or modify notes/status, and `manager` can delete files.
 
 ### `POST /api/v1/files`
 Uploads one or more files to a space and triggers ingestion into the vector store. Uses `multipart/form-data` with the `files` field plus JSON body fields `spaceId` and optional `note`
@@ -361,11 +381,11 @@ Uploads one or more files to a space and triggers ingestion into the vector stor
 
 **Error states**
 - `400 Bad Request` if no files are attached, a file type is disallowed, a file exceeds the size limit, or the space lacks a vector store.
-- `403 Forbidden` if the caller does not own the target space.
+- `403 Forbidden` if the caller lacks the `editor` role for the target space.
 - `404 Not Found` if the space does not exist.
 
 ### `GET /api/v1/files`
-Lists files owned by the authenticated user
+Lists files accessible to the authenticated user (viewer role or higher). Optional `spaceId` filtering enforces membership on that space.
 
 **Example Response**
 ```json
@@ -389,7 +409,7 @@ Lists files owned by the authenticated user
 ```
 
 ### `GET /api/v1/files/:id`
-Downloads a file stream after verifying ownership. Response headers include `Content-Type`, `Content-Disposition`, and optionally `Content-Length`.
+Downloads a file stream after verifying the caller has at least the `viewer` role. Response headers include `Content-Type`, `Content-Disposition`, and optionally `Content-Length`.
 
 **Error states**
 - `404 Not Found` if the file does not exist or is not owned by the user.
@@ -398,7 +418,7 @@ Downloads a file stream after verifying ownership. Response headers include `Con
 Fetches the stored note for a file.
 
 ### `PATCH /api/v1/files/:id/note`
-Updates the note content.
+Updates the note content (requires the `editor` role).
 
 **Request**
 ```json
@@ -418,20 +438,20 @@ Updates the note content.
 - `404 Not Found` if the file is missing or not owned by the caller.
 
 ### `DELETE /api/v1/files/:id/note`
-Clears the note. Returns `204 No Content`.
+Clears the note (requires the `editor` role`). Returns `204 No Content`.
 
 ### `GET /api/v1/files/:id/progress`
-Retrieves real-time upload progress or a completed snapshot if the upload has finished.
+Retrieves real-time upload progress or a completed snapshot if the upload has finished (requires the `viewer` role).
 
 ### `PATCH /api/v1/files/:id/status`
-Refreshes the ingestion status from OpenAI and updates the local record.
+Refreshes the ingestion status from OpenAI and updates the local record (requires the `editor` role).
 
 **Error states**
 - `404 Not Found` if the file is missing.
 - `400 Bad Request` when the file has not been ingested yet (no OpenAI ids).
 
 ### `DELETE /api/v1/files`
-Batch deletes files by id and reports per-file success/failure details.
+Batch deletes files by id and reports per-file success/failure details. Requires the `manager` role on each referenced space.
 
 **Request**
 ```json
@@ -590,15 +610,15 @@ Public endpoint that resolves a share token and returns a time-limited download 
 - `404 Not Found` if the share token is invalid or the link has expired.
 
 ### `DELETE /api/v1/files/:id`
-Deletes a single file, removing S3 and OpenAI artifacts. Returns `204 No Content`.
+Deletes a single file, removing S3 and OpenAI artifacts. Requires the `manager` role and returns `204 No Content`.
 
 **Error states**
-- `404 Not Found` if the file does not exist or is not owned by the caller.
+- `404 Not Found` if the file does not exist or the caller lacks access to its space.
 - `500 Internal Server Error` if storage or vector store cleanup fails.
 
 ## Conversations
 
-All conversation endpoints are JWT-protected and scoped to the owning space. Ownership checks ensure conversations belong to the caller's space.
+All conversation endpoints are JWT-protected and scoped to the owning space. The `viewer` role can list and read messages, the `editor` role can create conversations and send messages, and the `manager` role can delete conversations.
 
 ### `POST /api/v1/spaces/:spaceId/conversations`
 Creates a new conversation within a space. Title is optional; if omitted the system will auto-name later.
@@ -658,7 +678,7 @@ Deletes a conversation after verifying ownership. Returns `204 No Content`.
 
 ## Reminders
 
-Reminder routes are nested under a space and require JWT authentication. Ownership checks ensure reminders and files belong to the caller’s space.
+Reminder routes are nested under a space and require JWT authentication. Role requirements: `viewer` can list/read reminders, `editor` can create or update reminders and manage linked files, and `manager` can delete reminders.
 
 ### `POST /api/v1/spaces/:spaceId/reminders`
 Creates a reminder with optional note and linked files.
@@ -701,7 +721,7 @@ Creates a reminder with optional note and linked files.
 ```
 
 **Error states**
-- `404 Not Found` when the space does not belong to the user or linked files are missing from the space.
+- `404 Not Found` when the space or linked files cannot be found or the caller lacks access.
 
 ### `GET /api/v1/spaces/:spaceId/reminders`
 Lists reminders ordered by `remindAt`.
@@ -713,7 +733,7 @@ Returns a single reminder with file details.
 Updates reminder attributes and linked file set.
 
 **Error states**
-- `404 Not Found` if the reminder is missing, belongs to another user, or new fileIds are invalid.
+- `404 Not Found` if the reminder is missing, inaccessible to the caller, or new fileIds are invalid.
 
 ### `DELETE /api/v1/spaces/:spaceId/reminders/:id`
 Deletes a reminder. Returns `204 No Content`.
