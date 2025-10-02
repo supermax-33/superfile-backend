@@ -14,3 +14,6 @@ export const ALLOWED_MIME_TYPES = Object.freeze(['application/pdf']);
 export const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
 export const FILE_UPLOAD_FIELD = 'files';
 export const VECTOR_STORE_NAME_PREFIX = 'superfile-space';
+
+// Space invitations
+export const SPACE_INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days

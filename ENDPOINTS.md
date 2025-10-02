@@ -406,6 +406,119 @@ Removes a member from the space. Only the `OWNER` may invoke this endpoint and t
 - `403 Forbidden` if the caller is not the owner.
 - `404 Not Found` if the member record does not exist for the space.
 
+### `POST /api/v1/spaces/:spaceId/invitations`
+Invites a user to the space by email. Requires `MANAGER` or `OWNER` access. Prevents duplicate pending invites and existing memberships before issuing a new invitation email.
+
+**Request**
+```json
+{
+  "email": "new.user@example.com"
+}
+```
+
+**Response**
+```json
+{
+  "id": "inv_123",
+  "space": { "id": "space_123", "name": "Design Docs" },
+  "email": "new.user@example.com",
+  "status": "PENDING",
+  "invitedBy": {
+    "id": "user_owner",
+    "email": "owner@example.com",
+    "displayName": "Alex Owner"
+  },
+  "expiresAt": "2024-08-01T12:00:00.000Z",
+  "createdAt": "2024-07-25T12:00:00.000Z",
+  "updatedAt": "2024-07-25T12:00:00.000Z"
+}
+```
+
+**Error states**
+- `400 Bad Request` if an invitation is already pending for the email or the user is already a member.
+- `404 Not Found` if the space or inviter cannot be resolved.
+
+### `GET /api/v1/spaces/:spaceId/invitations`
+Lists invitations for a space (pending, accepted, rejected, expired). Requires `MANAGER` or higher. Automatically marks overdue pending invites as `EXPIRED` before returning them.
+
+**Response**
+```json
+[
+  {
+    "id": "inv_123",
+    "space": { "id": "space_123", "name": "Design Docs" },
+    "email": "new.user@example.com",
+    "status": "PENDING",
+    "invitedBy": {
+      "id": "user_owner",
+      "email": "owner@example.com",
+      "displayName": "Alex Owner"
+    },
+    "expiresAt": "2024-08-01T12:00:00.000Z",
+    "createdAt": "2024-07-25T12:00:00.000Z",
+    "updatedAt": "2024-07-25T12:00:00.000Z"
+  }
+]
+```
+
+### `POST /api/v1/spaces/invitations/:invitationId/accept`
+Accepts an emailed invitation token. Requires authentication (Bearer token) and that the caller's email matches the invited address. Automatically creates a `VIEWER` membership if necessary.
+
+**Query parameters**
+- `token`: required invitation token from the email link.
+
+**Response**
+```json
+{
+  "id": "inv_123",
+  "space": { "id": "space_123", "name": "Design Docs" },
+  "email": "new.user@example.com",
+  "status": "ACCEPTED",
+  "invitedBy": {
+    "id": "user_owner",
+    "email": "owner@example.com",
+    "displayName": "Alex Owner"
+  },
+  "expiresAt": "2024-08-01T12:00:00.000Z",
+  "createdAt": "2024-07-25T12:00:00.000Z",
+  "updatedAt": "2024-07-25T12:05:00.000Z"
+}
+```
+
+**Error states**
+- `400 Bad Request` if the invitation has already been processed or expired.
+- `403 Forbidden` when the token is invalid or the authenticated user email does not match the invitation.
+- `404 Not Found` if the invitation cannot be located.
+
+### `POST /api/v1/spaces/invitations/:invitationId/reject`
+Declines an invitation via the emailed token. Does not require authentication.
+
+**Query parameters**
+- `token`: required invitation token from the email link.
+
+**Response**
+```json
+{
+  "id": "inv_123",
+  "space": { "id": "space_123", "name": "Design Docs" },
+  "email": "new.user@example.com",
+  "status": "REJECTED",
+  "invitedBy": {
+    "id": "user_owner",
+    "email": "owner@example.com",
+    "displayName": "Alex Owner"
+  },
+  "expiresAt": "2024-08-01T12:00:00.000Z",
+  "createdAt": "2024-07-25T12:00:00.000Z",
+  "updatedAt": "2024-07-25T12:10:00.000Z"
+}
+```
+
+**Error states**
+- `400 Bad Request` if the invitation was already processed or expired.
+- `403 Forbidden` if the token is invalid.
+- `404 Not Found` when the invitation does not exist.
+
 ## Files
 
 All routes are JWT-protected. Uploads accept MIME types defined by `ALLOWED_MIME_TYPES` (pdf for now) and are size-limited by `MAX_FILE_SIZE_BYTES` (25MB for now). Access is scoped by space membership: VIEWERs can read and download, EDITORs can upload and modify metadata, and MANAGERs can perform destructive actions such as deletions.

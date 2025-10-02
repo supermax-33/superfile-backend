@@ -302,9 +302,7 @@ describe('Superfile API (e2e)', () => {
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(200);
     expect(
-      membersList.body.some(
-        (member: any) => member.userId === collaborator.id,
-      ),
+      membersList.body.some((member: any) => member.userId === collaborator.id),
     ).toBe(true);
 
     const collaboratorLogin = await api

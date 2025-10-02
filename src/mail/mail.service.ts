@@ -54,6 +54,38 @@ export class MailService {
     await this.resendService.sendEmail(email, subject, parts.join(''));
   }
 
+  async sendSpaceInvitationEmail(options: {
+    email: string;
+    spaceName: string;
+    inviterName: string;
+    acceptUrl: string;
+    rejectUrl: string;
+    existingUser: boolean;
+    expiresAt: Date;
+  }): Promise<void> {
+    const subject = `${this.escapeHtml(options.inviterName)} invited you to join ${this.escapeHtml(options.spaceName)}`;
+
+    const acceptLink = this.escapeHtml(options.acceptUrl);
+    const rejectLink = this.escapeHtml(options.rejectUrl);
+    const spaceName = this.escapeHtml(options.spaceName);
+    const inviterName = this.escapeHtml(options.inviterName);
+    const expiresAt = options.expiresAt.toUTCString();
+
+    const intro = options.existingUser
+      ? `<p>${inviterName} invited you to join the <strong>${spaceName}</strong> space.</p>`
+      : `<p>${inviterName} invited you to join the <strong>${spaceName}</strong> space. Create an account with this email address to get started.</p>`;
+
+    const html = [
+      intro,
+      `<p><a href="${acceptLink}">Accept invitation</a></p>`,
+      `<p>If you do not want to join, you can <a href="${rejectLink}">decline the invitation</a>.</p>`,
+      `<p>This invitation will expire on <strong>${expiresAt}</strong>.</p>`,
+      '<p>If you were not expecting this invitation, you can safely ignore this email.</p>',
+    ].join('');
+
+    await this.resendService.sendEmail(options.email, subject, html);
+  }
+
   private escapeHtml(input: string): string {
     return input
       .replace(/&/g, '&amp;')
