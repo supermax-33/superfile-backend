@@ -412,9 +412,12 @@ Invites a user to the space by email. Requires `MANAGER` or `OWNER` access. Prev
 **Request**
 ```json
 {
-  "email": "new.user@example.com"
+  "email": "new.user@example.com",
+  "role": "EDITOR"
 }
 ```
+
+`role` is optional; omit it to default to `VIEWER`. `OWNER` cannot be assigned through invitations.
 
 **Response**
 ```json
@@ -423,6 +426,7 @@ Invites a user to the space by email. Requires `MANAGER` or `OWNER` access. Prev
   "space": { "id": "space_123", "name": "Design Docs" },
   "email": "new.user@example.com",
   "status": "PENDING",
+  "role": "EDITOR",
   "invitedBy": {
     "id": "user_owner",
     "email": "owner@example.com",
@@ -435,7 +439,7 @@ Invites a user to the space by email. Requires `MANAGER` or `OWNER` access. Prev
 ```
 
 **Error states**
-- `400 Bad Request` if an invitation is already pending for the email or the user is already a member.
+- `400 Bad Request` if an invitation is already pending for the email, the user is already a member, or the requested role is invalid.
 - `404 Not Found` if the space or inviter cannot be resolved.
 
 ### `GET /api/v1/spaces/:spaceId/invitations`
@@ -449,6 +453,7 @@ Lists invitations for a space (pending, accepted, rejected, expired). Requires `
     "space": { "id": "space_123", "name": "Design Docs" },
     "email": "new.user@example.com",
     "status": "PENDING",
+    "role": "EDITOR",
     "invitedBy": {
       "id": "user_owner",
       "email": "owner@example.com",
@@ -461,8 +466,42 @@ Lists invitations for a space (pending, accepted, rejected, expired). Requires `
 ]
 ```
 
+### `PATCH /api/v1/spaces/:spaceId/invitations/:invitationId/role`
+Updates the requested membership role for a pending or accepted invitation. Requires `MANAGER` or `OWNER` access. If the invitation has already been accepted, the member's role is updated atomically to match. Roles can only be set to `VIEWER`, `EDITOR`, or `MANAGER` through this endpoint.
+
+**Request**
+```json
+{
+  "role": "MANAGER"
+}
+```
+
+**Response**
+```json
+{
+  "id": "inv_123",
+  "space": { "id": "space_123", "name": "Design Docs" },
+  "email": "new.user@example.com",
+  "status": "ACCEPTED",
+  "role": "MANAGER",
+  "invitedBy": {
+    "id": "user_owner",
+    "email": "owner@example.com",
+    "displayName": "Alex Owner"
+  },
+  "expiresAt": "2024-08-01T12:00:00.000Z",
+  "createdAt": "2024-07-25T12:00:00.000Z",
+  "updatedAt": "2024-07-30T09:00:00.000Z"
+}
+```
+
+**Error states**
+- `400 Bad Request` if the invitation has already been rejected or expired, the membership is missing for an accepted invite, or an unassignable role such as `OWNER` is requested.
+- `403 Forbidden` if the caller lacks the required space role.
+- `404 Not Found` if either the invitation or associated user cannot be resolved.
+
 ### `POST /api/v1/spaces/invitations/:invitationId/accept`
-Accepts an emailed invitation token. Requires authentication (Bearer token) and that the caller's email matches the invited address. Automatically creates a `VIEWER` membership if necessary.
+Accepts an emailed invitation token. Requires authentication (Bearer token) and that the caller's email matches the invited address. Automatically creates or updates the membership to match the invitation role if necessary.
 
 **Query parameters**
 - `token`: required invitation token from the email link.

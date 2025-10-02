@@ -12,6 +12,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { CreateSpaceInvitationDto } from './dto/create-space-invitation.dto';
 import { SpaceInvitationResponseDto } from './dto/space-invitation-response.dto';
+import { UpdateSpaceInvitationRoleDto } from './dto/update-space-invitation-role.dto';
 import {
   buildInvitationLink,
   generateInvitationToken,
@@ -27,6 +28,7 @@ type SpaceInvitationWithRelations = {
   spaceId: string;
   email: string;
   invitedBy: string;
+  role: SpaceRole;
   status: InvitationStatus;
   tokenHash: string;
   expiresAt: Date;
@@ -77,6 +79,8 @@ export class SpaceInvitationService {
     await this.expirePendingInvitations(spaceId);
 
     const email = normalizeInvitationEmail(dto.email);
+    const role = dto.role ?? SpaceRole.VIEWER;
+    this.assertAssignableRole(role);
     const now = new Date();
 
     const [space, inviter, existingUser, existingMember, pendingInvite] =
@@ -138,6 +142,7 @@ export class SpaceInvitationService {
         spaceId,
         email,
         invitedBy: actorId,
+        role,
         tokenHash: hashInvitationToken(rawToken),
         expiresAt,
       },
@@ -184,6 +189,86 @@ export class SpaceInvitationService {
     return invitations.map((invitation) => this.toResponse(invitation));
   }
 
+  async updateInvitationRole(
+    _actorId: string,
+    spaceId: string,
+    invitationId: string,
+    dto: UpdateSpaceInvitationRoleDto,
+  ): Promise<SpaceInvitationResponseDto> {
+    await this.expirePendingInvitations(spaceId);
+
+    const role = dto.role;
+    this.assertAssignableRole(role);
+
+    const invitation = (await this.prisma.spaceInvitation.findFirst({
+      where: { id: invitationId, spaceId },
+      include: this.invitationInclude,
+    })) as SpaceInvitationWithRelations | null;
+
+    if (!invitation) {
+      throw new NotFoundException('Invitation not found.');
+    }
+
+    if (
+      invitation.status === InvitationStatus.REJECTED ||
+      invitation.status === InvitationStatus.EXPIRED
+    ) {
+      throw new BadRequestException('Cannot modify a processed invitation.');
+    }
+
+    const updated = (await this.prisma.$transaction(async (tx) => {
+      const updatedInvitation = (await tx.spaceInvitation.update({
+        where: { id: invitation.id },
+        data: { role },
+        include: this.invitationInclude,
+      })) as SpaceInvitationWithRelations;
+
+      if (updatedInvitation.status === InvitationStatus.ACCEPTED) {
+        const user = await tx.user.findUnique({
+          where: { email: updatedInvitation.email },
+          select: { id: true },
+        });
+
+        if (!user) {
+          throw new NotFoundException(
+            'Accepted invitation user context no longer exists.',
+          );
+        }
+
+        const membership = await tx.spaceMember.findUnique({
+          where: {
+            spaceId_userId: {
+              spaceId,
+              userId: user.id,
+            },
+          },
+          select: { id: true, role: true },
+        });
+
+        if (!membership) {
+          throw new BadRequestException(
+            'Accepted invitation does not have an active membership.',
+          );
+        }
+
+        if (membership.role === SpaceRole.OWNER) {
+          throw new BadRequestException('Cannot change the owner role.');
+        }
+
+        if (membership.role !== role) {
+          await tx.spaceMember.update({
+            where: { id: membership.id },
+            data: { role },
+          });
+        }
+      }
+
+      return updatedInvitation;
+    })) as SpaceInvitationWithRelations;
+
+    return this.toResponse(updated);
+  }
+
   async acceptInvitation(
     invitationId: string,
     token: string,
@@ -216,7 +301,7 @@ export class SpaceInvitationService {
           userId: user.id,
         },
       },
-      select: { id: true },
+      select: { id: true, role: true },
     });
 
     const updated = (await this.prisma.$transaction(async (tx) => {
@@ -225,8 +310,13 @@ export class SpaceInvitationService {
           data: {
             spaceId: invitation.spaceId,
             userId: user.id,
-            role: SpaceRole.VIEWER,
+            role: invitation.role,
           },
+        });
+      } else if (membership.role !== invitation.role) {
+        await tx.spaceMember.update({
+          where: { id: membership.id },
+          data: { role: invitation.role },
         });
       }
 
@@ -266,6 +356,7 @@ export class SpaceInvitationService {
       space: { id: invitation.space.id, name: invitation.space.name },
       email: invitation.email,
       status: invitation.status,
+      role: invitation.role,
       invitedBy: {
         id: invitation.inviter.id,
         email: invitation.inviter.email,
@@ -305,6 +396,14 @@ export class SpaceInvitationService {
         data: { status: InvitationStatus.EXPIRED },
       });
       throw new BadRequestException('Invitation has expired.');
+    }
+  }
+
+  private assertAssignableRole(role: SpaceRole): void {
+    if (role === SpaceRole.OWNER) {
+      throw new BadRequestException(
+        'Owner role cannot be assigned via invitations.',
+      );
     }
   }
 

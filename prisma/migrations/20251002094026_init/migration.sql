@@ -83,6 +83,7 @@ CREATE TABLE "public"."SpaceInvitation" (
     "spaceId" TEXT NOT NULL,
     "email" VARCHAR(255) NOT NULL,
     "invitedBy" TEXT NOT NULL,
+    "role" "public"."SpaceRole" NOT NULL DEFAULT 'viewer',
     "status" "public"."InvitationStatus" NOT NULL DEFAULT 'PENDING',
     "tokenHash" VARCHAR(64) NOT NULL,
     "expiresAt" TIMESTAMP(3) NOT NULL,

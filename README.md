@@ -43,7 +43,7 @@ A space is a collaborative container owned by a single user. Each space has a hu
 Memberships connect users to spaces with a role chosen from `SpaceRole` (`VIEWER`, `EDITOR`, `MANAGER`, `OWNER`). Roles determine privileges across files, reminders, and conversations. The custom `SpaceRoleGuard` inspects route metadata to resolve the relevant space and assert the caller’s role before entering the handler.
 
 ### Space Invitations
-Invitations let space owners and managers onboard collaborators securely by email. Each `SpaceInvitation` stores the invited email, inviter, status (`PENDING`, `ACCEPTED`, `REJECTED`, `EXPIRED`), secure token hash, and expiry timestamp. Pending invitations dispatch transactional emails with accept/decline links. Accepting an invitation (while authenticated with the invited email) grants a `VIEWER` membership automatically; declining or expiry updates the status without modifying memberships.
+Invitations let space owners and managers onboard collaborators securely by email. Each `SpaceInvitation` stores the invited email, inviter, requested role, status (`PENDING`, `ACCEPTED`, `REJECTED`, `EXPIRED`), secure token hash, and expiry timestamp. Pending invitations dispatch transactional emails with accept/decline links. Accepting an invitation (while authenticated with the invited email) grants or updates the membership to the stored role; declining or expiry updates the status without modifying memberships.
 
 ### Files
 Files belong to spaces and move through `FileStatus` states (`PROCESSING`, `SUCCESS`, `FAILED`). Each record tracks the S3 object key, allowed MIME type (`application/pdf`), upload size (stored as bigint), OpenAI file identifiers, optional note, current error message, and timestamps. Files can be linked to reminders, conversations, and shared externally via tokens.
@@ -83,9 +83,10 @@ Reminders schedule follow-up actions inside a space. Each reminder stores a titl
 - `SpaceRoleGuard` inspects metadata set by the `@RequireSpaceRole` decorator to fetch the relevant space via params, body, query, file, conversation, or reminder associations and injects the membership into `request.spaceMembership` for downstream use.
 
 ### Space Invitations (`src/space-invitation`)
-- Owners and managers send invitations via `POST /api/v1/spaces/:spaceId/invitations`; the service normalizes the email, expires stale records, prevents duplicate pending invites, and queues accept/reject emails through `MailService`.
+- Owners and managers send invitations via `POST /api/v1/spaces/:spaceId/invitations`; the service normalizes the email, validates the optional `role` (defaults to `VIEWER`), expires stale records, prevents duplicate pending invites, and queues accept/reject emails through `MailService`.
 - `GET /api/v1/spaces/:spaceId/invitations` returns pending and historical invitations (newly expired rows are marked `EXPIRED` on read) so admins can audit outstanding requests.
-- Invitees accept through `POST /api/v1/spaces/invitations/:invitationId/accept?token=...` while authenticated with the invited email. Acceptance creates a `VIEWER` membership if one does not exist and flips the invitation to `ACCEPTED`.
+- `PATCH /api/v1/spaces/:spaceId/invitations/:invitationId/role` lets managers adjust the requested role for pending invites or update an accepted member's role without touching the dedicated member management endpoints.
+- Invitees accept through `POST /api/v1/spaces/invitations/:invitationId/accept?token=...` while authenticated with the invited email. Acceptance creates or updates the membership to the invitation role and flips the invitation to `ACCEPTED`.
 - Declines hit `POST /api/v1/spaces/invitations/:invitationId/reject?token=...`, updating the status to `REJECTED` without altering memberships.
 
 ### Files & Sharing (`src/file`)
@@ -129,7 +130,7 @@ Reminders schedule follow-up actions inside a space. Each reminder stores a titl
 | `Session` | Refresh session/device. | `refreshTokenHash`, `previousTokenHash`, metadata, `expiresAt`, `revokedAt`, belongs to a `User`. |
 | `Space` | Collaborative container. | `slug`, `ownerId`, `vectorStoreId`, logo relation, files, conversations, reminders, members, `FileShare`. |
 | `SpaceMember` | User-role mapping per space. | `role` enum, unique constraint on (`spaceId`, `userId`). |
-| `SpaceInvitation` | Pending email invitation to a space. | `email`, `invitedBy`, `status`, `tokenHash`, `expiresAt`; links to `Space` + inviting `User`. |
+| `SpaceInvitation` | Pending email invitation to a space. | `email`, `invitedBy`, `role`, `status`, `tokenHash`, `expiresAt`; links to `Space` + inviting `User`. |
 | `SpaceLogo` | Binary logo storage. | `data` (`Bytes`), `contentType`, SHA-256 `hash`. |
 | `File` | Stored document. | `filename`, `mimetype`, `size`, `status`, `s3Key`, `vectorStoreId`, `openAiFileId`, `note`, reminder links. |
 | `FileShare` | External access token. | `shareToken`, optional `expiresAt`, `note`, belongs to `File` + `Space`. |
@@ -178,7 +179,7 @@ Ensure `.env` is created from `.env.example`, populate these values, and keep se
 3. **Space creation & membership**
    1. Authenticated owner calls `POST /api/v1/spaces` with name + slug.
    2. Service provisions an OpenAI vector store, creates the space, and inserts the owner membership.
-   3. Owners/managers invite teammates via `POST /spaces/:spaceId/invitations`; invitees accept through the emailed tokenized link (or decline). Direct member insertion via `POST /spaces/:spaceId/members` remains available for existing accounts.
+   3. Owners/managers invite teammates via `POST /spaces/:spaceId/invitations`, optionally specifying the desired role. They can revise the role later with `PATCH /spaces/:spaceId/invitations/:invitationId/role` until the invitation is revoked. Direct member insertion via `POST /spaces/:spaceId/members` remains available for existing accounts.
    4. Role-guarded routes enforce capabilities (e.g., only `MANAGER`+ can delete files or conversations).
 
 4. **File ingest & sharing**
