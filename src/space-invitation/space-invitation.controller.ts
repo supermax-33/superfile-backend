@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Patch,
   Param,
   Post,
   Query,
@@ -20,6 +21,7 @@ import { SpaceRoleGuard } from '../space-member/guards/space-role.guard';
 import { RequestWithUser } from 'types';
 import { CreateSpaceInvitationDto } from './dto/create-space-invitation.dto';
 import { SpaceInvitationResponseDto } from './dto/space-invitation-response.dto';
+import { UpdateSpaceInvitationRoleDto } from './dto/update-space-invitation-role.dto';
 import { SpaceInvitationService } from './space-invitation.service';
 
 @Controller('spaces')
@@ -45,6 +47,33 @@ export class SpaceInvitationController {
     }
 
     return this.spaceInvitations.createInvitation(actorId, spaceId, dto);
+  }
+
+  @Version('1')
+  @Patch(':id/invitations/:invitationId/role')
+  @UseFilters(JwtExceptionFilter)
+  @UseGuards(JwtAuthGuard, SpaceRoleGuard)
+  @RequireSpaceRole(SpaceRole.MANAGER, { source: 'param', key: 'id' })
+  async updateInvitationRole(
+    @Param('id') spaceId: string,
+    @Param('invitationId') invitationId: string,
+    @Body() dto: UpdateSpaceInvitationRoleDto,
+    @Req() request: RequestWithUser,
+  ): Promise<SpaceInvitationResponseDto> {
+    const actorId = request.user?.userId;
+
+    if (!actorId) {
+      throw new UnauthorizedException(
+        'Authenticated user context is required to change invitation roles.',
+      );
+    }
+
+    return this.spaceInvitations.updateInvitationRole(
+      actorId,
+      spaceId,
+      invitationId,
+      dto,
+    );
   }
 
   @Version('1')

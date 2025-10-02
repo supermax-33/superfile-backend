@@ -129,6 +129,7 @@ model SpaceInvitation {
   spaceId    String
   email      String            @db.VarChar(255)
   invitedBy  String
+  role       SpaceRole         @default(VIEWER)
   status     InvitationStatus  @default(PENDING)
   tokenHash  String            @unique @db.VarChar(64)
   expiresAt  DateTime

@@ -283,19 +283,20 @@ describe('Superfile API (e2e)', () => {
     const invitationRes = await api
       .post(`/api/v1/spaces/${spaceId}/invitations`)
       .set('Authorization', `Bearer ${accessToken}`)
-      .send({ email: collaboratorEmail })
+      .send({ email: collaboratorEmail, role: 'EDITOR' })
       .expect(201);
     expect(invitationRes.body.status).toBe('PENDING');
+    expect(invitationRes.body.role).toBe('EDITOR');
 
     const invitationsList = await api
       .get(`/api/v1/spaces/${spaceId}/invitations`)
       .set('Authorization', `Bearer ${accessToken}`)
       .expect(200);
-    expect(
-      invitationsList.body.some(
-        (invitation: any) => invitation.id === invitationRes.body.id,
-      ),
-    ).toBe(true);
+    const pendingInvitation = invitationsList.body.find(
+      (invitation: any) => invitation.id === invitationRes.body.id,
+    );
+    expect(pendingInvitation).toBeDefined();
+    expect(pendingInvitation.role).toBe('EDITOR');
 
     const invitationMail = mailService.spaceInvitationEmails.find(
       (mail) => mail.email === collaboratorEmail,
@@ -380,6 +381,7 @@ describe('Superfile API (e2e)', () => {
       (invitation: any) => invitation.id === invitationRes.body.id,
     );
     expect(acceptedInvitation.status).toBe('ACCEPTED');
+    expect(acceptedInvitation.role).toBe('EDITOR');
 
     const membersList = await api
       .get(`/api/v1/spaces/${spaceId}/members`)
@@ -389,8 +391,26 @@ describe('Superfile API (e2e)', () => {
       (member: any) => member.user.email === collaboratorEmail,
     );
     expect(collaboratorMember).toBeDefined();
-    expect(collaboratorMember.role).toBe('VIEWER');
+    expect(collaboratorMember.role).toBe('EDITOR');
     const collaboratorMemberId = collaboratorMember.id as string;
+
+    const downgradedInvitation = await api
+      .patch(
+        `/api/v1/spaces/${spaceId}/invitations/${invitationRes.body.id}/role`,
+      )
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ role: 'VIEWER' })
+      .expect(200);
+    expect(downgradedInvitation.body.role).toBe('VIEWER');
+
+    const membersAfterDowngrade = await api
+      .get(`/api/v1/spaces/${spaceId}/members`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+    const downgradedMember = membersAfterDowngrade.body.find(
+      (member: any) => member.user.email === collaboratorEmail,
+    );
+    expect(downgradedMember.role).toBe('VIEWER');
 
     await api
       .post('/api/v1/files')
@@ -400,10 +420,38 @@ describe('Superfile API (e2e)', () => {
       .expect(403);
 
     await api
-      .patch(`/api/v1/spaces/${spaceId}/members/${collaboratorMemberId}`)
+      .patch(
+        `/api/v1/spaces/${spaceId}/invitations/${invitationRes.body.id}/role`,
+      )
+      .set('Authorization', `Bearer ${collaboratorAccessToken}`)
+      .send({ role: 'MANAGER' })
+      .expect(403);
+
+    await api
+      .patch(
+        `/api/v1/spaces/${spaceId}/invitations/${invitationRes.body.id}/role`,
+      )
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({ role: 'OWNER' })
+      .expect(400);
+
+    const upgradedInvitation = await api
+      .patch(
+        `/api/v1/spaces/${spaceId}/invitations/${invitationRes.body.id}/role`,
+      )
       .set('Authorization', `Bearer ${accessToken}`)
       .send({ role: 'EDITOR' })
       .expect(200);
+    expect(upgradedInvitation.body.role).toBe('EDITOR');
+
+    const membersAfterUpgrade = await api
+      .get(`/api/v1/spaces/${spaceId}/members`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+    const upgradedMember = membersAfterUpgrade.body.find(
+      (member: any) => member.user.email === collaboratorEmail,
+    );
+    expect(upgradedMember.role).toBe('EDITOR');
 
     await api
       .patch(`/api/v1/spaces/${spaceId}/members/${collaboratorMemberId}`)
@@ -425,11 +473,23 @@ describe('Superfile API (e2e)', () => {
       .set('Authorization', `Bearer ${collaboratorAccessToken}`)
       .expect(403);
 
-    await api
-      .patch(`/api/v1/spaces/${spaceId}/members/${collaboratorMemberId}`)
+    const managerInvitation = await api
+      .patch(
+        `/api/v1/spaces/${spaceId}/invitations/${invitationRes.body.id}/role`,
+      )
       .set('Authorization', `Bearer ${accessToken}`)
       .send({ role: 'MANAGER' })
       .expect(200);
+    expect(managerInvitation.body.role).toBe('MANAGER');
+
+    const membersAfterManagerUpdate = await api
+      .get(`/api/v1/spaces/${spaceId}/members`)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(200);
+    const managerMember = membersAfterManagerUpdate.body.find(
+      (member: any) => member.user.email === collaboratorEmail,
+    );
+    expect(managerMember.role).toBe('MANAGER');
 
     await api
       .delete(`/api/v1/files/${collabFile.id}`)

@@ -203,10 +203,23 @@ Space invitations live under the `/v1/spaces` namespace and require manager-leve
 curl -X POST http://localhost:3000/v1/spaces/<SPACE_ID>/invitations \
   -H 'Authorization: Bearer <ACCESS_TOKEN>' \
   -H 'Content-Type: application/json' \
-  -d '{"email":"invitee@example.com"}'
+  -d '{"email":"invitee@example.com","role":"EDITOR"}'
 ```
 
-The response echoes the invitation metadata (including expiry). An email will be sent via Resend containing accept/reject links.
+The response echoes the invitation metadata (including expiry) and the requested role. Omit `role` to default to `VIEWER`. An email will be sent via Resend containing accept/reject links.
+
+## Update Invitation Role
+
+Managers (or the owner) can revise the requested role while the invitation is pending or after it has been accepted. Accepted invitations update the member's role inside the same transaction.
+
+```bash
+curl -X PATCH http://localhost:3000/v1/spaces/<SPACE_ID>/invitations/<INVITATION_ID>/role \
+  -H 'Authorization: Bearer <ACCESS_TOKEN>' \
+  -H 'Content-Type: application/json' \
+  -d '{"role":"MANAGER"}'
+```
+
+`OWNER` cannot be assigned through this endpoint; use member management instead if ownership must change.
 
 ## List Invitations for a Space
 
@@ -226,7 +239,7 @@ curl -X POST "http://localhost:3000/v1/spaces/invitations/<INVITATION_ID>/accept
   -H 'Authorization: Bearer <ACCESS_TOKEN>'
 ```
 
-Acceptance provisions a `VIEWER` membership if one does not already exist.
+Acceptance provisions or updates the membership to match the invitation role.
 
 ## Reject an Invitation
 
