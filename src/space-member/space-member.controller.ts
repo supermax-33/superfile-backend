@@ -82,7 +82,9 @@ export class SpaceMemberController {
     const userId = request.user?.userId;
 
     if (!userId) {
-      throw new UnauthorizedException('Authenticated user context is required.');
+      throw new UnauthorizedException(
+        'Authenticated user context is required.',
+      );
     }
 
     return userId;

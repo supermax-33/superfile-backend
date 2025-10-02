@@ -32,7 +32,9 @@ export class SpaceMemberService {
 
     const members = await this.prisma.spaceMember.findMany({
       where: { spaceId },
-      include: { user: { select: { id: true, email: true, displayName: true } } },
+      include: {
+        user: { select: { id: true, email: true, displayName: true } },
+      },
       orderBy: { createdAt: 'asc' },
     });
 
@@ -87,7 +89,9 @@ export class SpaceMemberService {
         userId: dto.userId,
         role,
       },
-      include: { user: { select: { id: true, email: true, displayName: true } } },
+      include: {
+        user: { select: { id: true, email: true, displayName: true } },
+      },
     });
 
     return this.toResponse(member);
@@ -109,7 +113,9 @@ export class SpaceMemberService {
 
     const member = await this.prisma.spaceMember.findFirst({
       where: { id: memberId, spaceId },
-      include: { user: { select: { id: true, email: true, displayName: true } } },
+      include: {
+        user: { select: { id: true, email: true, displayName: true } },
+      },
     });
 
     if (!member) {
@@ -129,7 +135,9 @@ export class SpaceMemberService {
     const updated = await this.prisma.spaceMember.update({
       where: { id: memberId },
       data: { role: dto.role },
-      include: { user: { select: { id: true, email: true, displayName: true } } },
+      include: {
+        user: { select: { id: true, email: true, displayName: true } },
+      },
     });
 
     return this.toResponse(updated);
@@ -239,10 +247,7 @@ export class SpaceMemberService {
     return reminder.spaceId;
   }
 
-  private hasSufficientRole(
-    current: SpaceRole,
-    required: SpaceRole,
-  ): boolean {
+  private hasSufficientRole(current: SpaceRole, required: SpaceRole): boolean {
     return ROLE_PRIORITY[current] >= ROLE_PRIORITY[required];
   }
 
@@ -262,9 +267,7 @@ export class SpaceMemberService {
     }
 
     if (space.ownerId !== actorId) {
-      throw new ForbiddenException(
-        'Only the space owner can manage members.',
-      );
+      throw new ForbiddenException('Only the space owner can manage members.');
     }
   }
 
