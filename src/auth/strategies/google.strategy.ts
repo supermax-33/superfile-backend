@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
-import { Profile, Strategy, VerifyCallback } from 'passport-google-oauth20';
+import { Profile, Strategy } from 'passport-google-oauth20';
 @Injectable()
 export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
   private readonly logger = new Logger(GoogleStrategy.name);
@@ -25,9 +25,13 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
     }
   }
 
-  async validate(profile: Profile, done: VerifyCallback): Promise<void> {
+  async validate(
+    accessToken: string,
+    refreshToken: string,
+    profile: Profile,
+  ): Promise<Profile> {
     // We simply bubble the profile up to the request context so the controller
     // can pass it to AuthService where the user provisioning logic lives.
-    done(null, profile);
+    return profile;
   }
 }
