@@ -35,6 +35,15 @@ import { SpaceRoleGuard } from '../space-member/guards/space-role.guard';
 export class SpaceController {
   constructor(private readonly spaceService: SpaceService) {}
 
+  // get all spaces
+  @Version('1')
+  @Get()
+  @UseFilters(JwtExceptionFilter)
+  @UseGuards(JwtAuthGuard)
+  async findAll(): Promise<SpaceResponseDto[]> {
+    return this.spaceService.findAll();
+  }
+
   @Version('1')
   @Post()
   @UseFilters(JwtExceptionFilter)

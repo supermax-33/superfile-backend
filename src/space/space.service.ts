@@ -188,6 +188,14 @@ export class SpaceService {
     return this.toSpaceResponse(space);
   }
 
+  async findAll(): Promise<SpaceResponseDto[]> {
+    const spaces = await this.prisma.space.findMany({
+      include: { logo: { select: { contentType: true, hash: true } } },
+    });
+
+    return spaces.map((space) => this.toSpaceResponse(space));
+  }
+
   async findOne(spaceId: string): Promise<SpaceResponseDto> {
     const space = await this.prisma.space.findUnique({
       where: { id: spaceId },
